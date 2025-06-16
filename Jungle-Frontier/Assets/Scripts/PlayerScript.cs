@@ -1,6 +1,8 @@
+using static ResourceType;
 using UnityEngine.EventSystems;
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 public class PlayerScript : MonoBehaviour
 {
     public JoyStick joystick; // Reference to your joystick
@@ -8,15 +10,18 @@ public class PlayerScript : MonoBehaviour
     public float rotationSpeed = 720f; // degrees per second
     private Animator animator;
 
-    public Transform woodStackPoint; // empty GameObject on player's back
-    private int woodStackCount = 0;
+    public Transform stackPoint; // general stacking point
+    private Dictionary<ResourceType, float> resourceStackDepth = new();
+    private float pieceDepth = 0.0028f;
 
     private Tree nearTree = null;
     private bool isChopping = false;
     private float chopTimer = 0f;
 
-    private float woodStackDepth = 0f; // replaces woodStackCount * depth
-    private float woodPieceDepth = 0.0028f; // depth of 1 wood piece
+    private Dictionary<ResourceType, int> inventory = new();
+
+    // Tracks wood (and other resource) GameObjects currently on the player’s back
+    private List<Wood> backedWoods = new List<Wood>();
 
     void Start()
     {
@@ -28,6 +33,11 @@ public class PlayerScript : MonoBehaviour
         else
         {
             Debug.Log("Animator found: " + animator.gameObject.name);
+        }
+
+        if (stackPoint == null)
+        {
+            Debug.LogError("stackPoint is not assigned on PlayerScript! Please assign it in the Inspector.");
         }
     }
 
@@ -107,11 +117,105 @@ public class PlayerScript : MonoBehaviour
         animator.SetBool("isChopping", false);
     }
 
-    public float GetNextWoodStackDepth()
+    public float GetNextStackDepth(ResourceType type)
     {
-        Debug.Log($"[PlayerScript] Providing next wood stack depth: {woodStackDepth}");
-        float currentDepth = woodStackDepth;
-        woodStackDepth += woodPieceDepth;
+        if (!resourceStackDepth.ContainsKey(type))
+            resourceStackDepth[type] = 0f;
+
+        float currentDepth = resourceStackDepth[type];
+        resourceStackDepth[type] += pieceDepth;
+
+        Debug.Log($"[PlayerScript] Next stack depth for {type}: {currentDepth}");
         return currentDepth;
+    }
+
+    public bool HasResource(ResourceType type)
+    {
+        return inventory.ContainsKey(type) && inventory[type] > 0;
+    }
+
+    public void RemoveResource(ResourceType type)
+    {
+        if (HasResource(type))
+        {
+            inventory[type]--;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to spend one unit of the given resource.
+    /// Returns true if the player had the resource and it was removed.
+    /// </summary>
+    public bool TrySpendResource(ResourceType type)
+    {
+        if (HasResource(type))
+        {
+            inventory[type]--;
+            Debug.Log($"[PlayerScript] Spent 1 {type}. Remaining: {inventory[type]}");
+            return true;
+        }
+        Debug.LogWarning($"[PlayerScript] Not enough {type} to spend.");
+        return false;
+    }
+
+    public void AddResource(ResourceType type)
+    {
+        if (!inventory.ContainsKey(type))
+            inventory[type] = 0;
+
+        inventory[type]++;
+        Debug.Log($"[PlayerScript] Resource {type} count is now: {inventory[type]}");
+
+        // If a wood resource was just added, register its GameObject on the back
+        if (type == ResourceType.Wood)
+        {
+            // Expecting the Wood component to call RegisterBackedWood itself,
+            // or you can locate the newest child under stackPoint:
+            var latestWood = stackPoint.GetComponentInChildren<Wood>();
+            if (latestWood != null)
+                RegisterBackedWood(latestWood);
+        }
+    }
+
+    public int GetResourceCount(ResourceType type)
+    {
+        return inventory.ContainsKey(type) ? inventory[type] : 0;
+    }
+
+    /// <summary>
+    /// Registers a wood piece on the player’s back and reflows the stack.
+    /// </summary>
+    public void RegisterBackedWood(Wood wood)
+    {
+        if (!backedWoods.Contains(wood))
+        {
+            backedWoods.Add(wood);
+            RebuildStack();
+        }
+    }
+
+    /// <summary>
+    /// Unregisters a wood piece (e.g., when it sells itself) and reflows the stack.
+    /// </summary>
+    public void RemoveBackedWood(Wood wood)
+    {
+        if (backedWoods.Remove(wood))
+        {
+            RebuildStack();
+        }
+    }
+
+    /// <summary>
+    /// Repositions all backed wood pieces under the stackPoint, spacing them by pieceDepth.
+    /// </summary>
+    private void RebuildStack()
+    {
+        for (int i = 0; i < backedWoods.Count; i++)
+        {
+            var wood = backedWoods[i];
+            wood.transform.SetParent(stackPoint);
+            wood.transform.localPosition = new Vector3(0, pieceDepth * i, 0);
+            wood.transform.localRotation = Quaternion.identity;
+        }
     }
 }

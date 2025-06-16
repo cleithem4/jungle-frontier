@@ -1,4 +1,5 @@
 using UnityEngine;
+using static ResourceType;
 
 public class Tree : MonoBehaviour
 {
@@ -22,12 +23,9 @@ public class Tree : MonoBehaviour
 
     private void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Player"))
+        if (other.CompareTag("Player") && player != null)
         {
-            if (player != null)
-            {
-                player.ClearNearTree(this);
-            }
+            player.ClearNearTree(this);
         }
     }
 
@@ -56,7 +54,7 @@ public class Tree : MonoBehaviour
                 Wood woodComponent = woodPiece.GetComponent<Wood>();
                 if (woodComponent != null)
                 {
-                    woodComponent.Init(this.player, this.player.woodStackPoint, delay);
+                    woodComponent.Init(this.player, this.player.stackPoint, delay, ResourceType.Wood);
                 }
             }
         }
