@@ -6,6 +6,10 @@ using UnityEngine.UI;  // for Image, CanvasGroup, etc.
 using UnityEngine.Events;
 using TMPro;
 
+// Custom UnityEvent subclass that passes a Vector3 argument
+[System.Serializable]
+public class Vector3Event : UnityEngine.Events.UnityEvent<Vector3> { }
+
 public class BuyZone : MonoBehaviour
 {
     public Image fillImage;
@@ -18,7 +22,8 @@ public class BuyZone : MonoBehaviour
     public GameObject resourcePrefab; // assign the prefab for the required resource
 
     [Header("Action")]
-    public UnityEvent onBuyComplete;
+    public Vector3Event onBuyComplete;
+    public Vector3 paintOffset = Vector3.zero;
 
     [Header("UI Text")]
     public TMP_Text amountText; // assign your UI Text component here
@@ -52,7 +57,7 @@ public class BuyZone : MonoBehaviour
         }
 
         if (amountText != null)
-            amountText.text = $"{currentCollected}/{amountNeeded}";
+            amountText.text = $"{amountNeeded - currentCollected}";
     }
 
     private void OnTriggerEnter(Collider other)
@@ -115,7 +120,7 @@ public class BuyZone : MonoBehaviour
 
         // Update amount text
         if (amountText != null)
-            amountText.text = $"{currentCollected}/{amountNeeded}";
+            amountText.text = $"{amountNeeded - currentCollected}";
 
         // 4) Shake on full completion
         if (currentCollected >= amountNeeded)
@@ -131,7 +136,7 @@ public class BuyZone : MonoBehaviour
             {
                 cameraFollow.Shake(shakeDuration, 0.1f);
             }
-            onBuyComplete.Invoke();
+            onBuyComplete.Invoke(transform.position + paintOffset);
         }
     }
 
