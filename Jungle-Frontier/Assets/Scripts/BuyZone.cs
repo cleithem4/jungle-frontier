@@ -6,6 +6,7 @@ using UnityEngine.UI;  // for Image, CanvasGroup, etc.
 using UnityEngine.Events;
 using TMPro;
 
+[RequireComponent(typeof(ResourceReceiver))]
 // Custom UnityEvent subclass that passes a Vector3 argument
 [System.Serializable]
 public class Vector3Event : UnityEngine.Events.UnityEvent<Vector3> { }
@@ -26,16 +27,16 @@ public class BuyZone : MonoBehaviour
     public Vector3 paintOffset = Vector3.zero;
 
     [Header("UI Text")]
-    public TMP_Text amountText; // assign your UI Text component here
-
+    [Tooltip("Text element showing how many more resources are needed.")]
+    public TMP_Text amountText;
+    [Tooltip("Which resource type this BuyZone accepts (set on ResourceReceiver).")]
     public ResourceType requiredResource;
     public int amountNeeded = 5;
-    private int currentCollected = 0;
+    public int currentCollected = 0;
 
     [Header("Player Detection")]
     public UnityEvent onPlayerEnter;
     public UnityEvent onPlayerExit;
-    private bool playerInZone = false;
 
     [Header("Juicy Feedback")]
     public ParticleSystem tickParticles;    // Particle burst on each tick
@@ -58,101 +59,34 @@ public class BuyZone : MonoBehaviour
 
         if (amountText != null)
             amountText.text = $"{amountNeeded - currentCollected}";
+
+        // Configure ResourceReceiver
+        var receiver = GetComponent<ResourceReceiver>();
+        receiver.acceptedResources = new[] { requiredResource };
+        receiver.maxCapacity = amountNeeded;
+        receiver.currentCollected = currentCollected;
+        receiver.onResourceReceived.AddListener(ReceiveResource);
+        //receiver.amountNeeded = amountNeeded;
+        //receiver.currentCollected = currentCollected;
+        //receiver.onResourceReceived.AddListener(_ => OnResourceReceived());
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        // Detect player entering
         if (!other.CompareTag("Player")) return;
-        playerInZone = true;
         onPlayerEnter?.Invoke();
 
-        // Grab the PlayerScript to access the stackPoint
         var playerScript = other.GetComponent<PlayerScript>();
         if (playerScript == null) return;
 
-        // Calculate how many more resources we need
-        int needed = amountNeeded - currentCollected;
-        if (needed <= 0) return;
-
-        // Select the top 'needed' wood pieces by their Y offset
-        var woods = playerScript.stackPoint
-            .GetComponentsInChildren<Wood>()
-            .Where(w => w.CurrentState == WoodState.OnBack)
-            .OrderByDescending(w => w.transform.localPosition.y)
-            .Take(needed)
-            .ToList();
-
-        // Start staggered selling of just those pieces
-        StartCoroutine(SellAllWoodsCoroutine(woods));
+        playerScript.SellToBuyZone(this);
     }
 
     private void OnTriggerExit(Collider other)
     {
         if (other.CompareTag("Player"))
         {
-            playerInZone = false;
             onPlayerExit?.Invoke();
-        }
-    }
-
-    public void ReceiveResource()
-    {
-        if (currentCollected >= amountNeeded)
-            return;
-
-        currentCollected++;
-        Debug.Log($"[BuyZone] Received 1 {requiredResource}. Total: {currentCollected}/{amountNeeded}");
-
-        // 1) Smooth, eased fill animation
-        float target = (float)currentCollected / amountNeeded;
-        StartCoroutine(AnimateFill(target, 0.5f));
-
-        // 2) Particle burst on tick
-        if (tickParticles != null)
-            tickParticles.Play();
-
-        // 5) Flash/tint the panel briefly
-        if (panelCanvas != null)
-        {
-            StartCoroutine(AnimateCanvasFade(0.5f, 0.1f, 1f, 0.2f));
-        }
-
-        // Update amount text
-        if (amountText != null)
-            amountText.text = $"{amountNeeded - currentCollected}";
-
-        // 4) Shake on full completion
-        if (currentCollected >= amountNeeded)
-        {
-            if (panelCanvas != null)
-            {
-                // Shake the UI element's RectTransform for a better UI shake
-                var rect = panelCanvas.GetComponent<RectTransform>();
-                StartCoroutine(AnimateShake(rect, shakeDuration, 0.2f));
-            }
-            // World-space camera shake
-            if (cameraFollow != null)
-            {
-                cameraFollow.Shake(shakeDuration, 0.1f);
-            }
-            onBuyComplete.Invoke(transform.position + paintOffset);
-        }
-    }
-
-    private IEnumerator SellAllWoodsCoroutine(List<Wood> woods)
-    {
-        float totalDuration = 3f; // total time over which to stagger all woods
-        int count = woods.Count;
-        if (count == 0) yield break;
-        float interval = totalDuration / count;
-
-        for (int i = 0; i < count; i++)
-        {
-            yield return new WaitForSeconds(interval);
-            // Stop if player has exited the zone
-            if (!playerInZone) yield break;
-            woods[i].StartSellTo(this);
         }
     }
 
@@ -208,5 +142,48 @@ public class BuyZone : MonoBehaviour
             yield return null;
         }
         rect.anchoredPosition = originalPos;
+    }
+
+    /// <summary>
+    /// Called by the player to sell wood pieces into this zone.
+    /// </summary>
+    public void AttemptPurchase()
+    {
+        // Will trigger ReceiveResource() for each arriving piece.
+        // PlayerScript handles which pieces and the timing.
+    }
+
+    /// <summary>
+    /// Called whenever ResourceReceiver delivers a resource to this zone.
+    /// </summary>
+    public void ReceiveResource(GameObject resourceGO)
+    {
+        // Update count
+        currentCollected++;
+        // Fill animation
+        float target = (float)currentCollected / amountNeeded;
+        StartCoroutine(AnimateFill(target, 0.5f));
+        // Tick particles
+        if (tickParticles != null)
+            tickParticles.Play();
+        // Canvas flash
+        if (panelCanvas != null)
+            StartCoroutine(AnimateCanvasFade(0.5f, 0.1f, 1f, 0.2f));
+        // Update UI text
+        if (amountText != null)
+            amountText.text = $"{amountNeeded - currentCollected}";
+        // If full, shake, invoke, destroy
+        if (currentCollected >= amountNeeded)
+        {
+            if (panelCanvas != null)
+            {
+                var rect = panelCanvas.GetComponent<RectTransform>();
+                StartCoroutine(AnimateShake(rect, shakeDuration, 0.2f));
+            }
+            if (cameraFollow != null)
+                cameraFollow.Shake(shakeDuration, 0.1f);
+            onBuyComplete.Invoke(transform.position + paintOffset);
+            Destroy(gameObject);
+        }
     }
 }

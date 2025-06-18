@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using static ResourceType;
 
+
 public class Tree : MonoBehaviour
 {
     public float chopTime = 2f; // seconds to chop the tree
@@ -72,10 +73,10 @@ public class Tree : MonoBehaviour
             {
                 float delay = Random.Range(0f, 0.3f); // random delay so they don't fly all at once
 
-                Wood woodComponent = woodPiece.GetComponent<Wood>();
-                if (woodComponent != null)
+                var resBehavior = woodPiece.GetComponent<ResourceBehavior>();
+                if (resBehavior != null)
                 {
-                    woodComponent.Init(this.player, this.player.stackPoint, delay, ResourceType.Wood);
+                    resBehavior.Pickup(this.player, this.player.stackPoint, delay);
                 }
             }
         }
