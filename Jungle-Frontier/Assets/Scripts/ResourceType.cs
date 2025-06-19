@@ -2,7 +2,8 @@ using UnityEngine;
 
 public enum ResourceType
 {
-    Wood,
+    Cash,
+    Crystal,
     Stone,
-    Cash
+    Wood
 }

@@ -12,7 +12,6 @@ public class PlayerScript : MonoBehaviour
     private Animator animator;
 
     public Transform stackPoint; // general stacking point
-    private Dictionary<ResourceType, float> resourceStackDepth = new();
     private float pieceDepth = 0.35f;
 
     private Tree nearTree = null;
@@ -120,14 +119,14 @@ public class PlayerScript : MonoBehaviour
 
     public float GetNextStackDepth(ResourceType type)
     {
-        if (!resourceStackDepth.ContainsKey(type))
-            resourceStackDepth[type] = 0f;
+        // Remove any destroyed or null references before counting
+        backedResources.RemoveAll(r => r == null);
 
-        float currentDepth = resourceStackDepth[type];
-        resourceStackDepth[type] += pieceDepth;
-
-        Debug.Log($"[PlayerScript] Next stack depth for {type}: {currentDepth}");
-        return currentDepth;
+        // Determine stack height by counting existing backed resources of this type
+        int count = backedResources
+            .Count(r => r.GetComponent<Resource>().resourceType == type);
+        float depth = count * pieceDepth;
+        return depth;
     }
 
     public bool HasResource(ResourceType type)
@@ -173,6 +172,54 @@ public class PlayerScript : MonoBehaviour
     }
 
     /// <summary>
+    /// Generic entry point for ResourcePickupZone; routes per-type behavior.
+    /// </summary>
+    public void CollectResource(ResourceBehavior resBehavior, float pickupDuration)
+    {
+        var type = resBehavior.GetComponent<Resource>().resourceType;
+
+        switch (type)
+        {
+            case ResourceType.Wood:
+                // Fly onto back and register for stacking
+                resBehavior.pickupDuration = pickupDuration;
+                resBehavior.Pickup(this, stackPoint, 0f);
+                break;
+
+            default:
+                // For any other resource (e.g. Crystal), fly to player then award immediately
+                StartCoroutine(CollectAndConsume(resBehavior, pickupDuration, type));
+                break;
+        }
+    }
+
+    private IEnumerator CollectAndConsume(ResourceBehavior resBehavior, float duration, ResourceType type)
+    {
+        // Fly to player
+        resBehavior.pickupDuration = duration;
+        resBehavior.Pickup(this, stackPoint, 0f);
+
+        // Wait until it lands on the player's back
+        while (resBehavior != null && resBehavior.transform.parent != stackPoint)
+            yield return null;
+
+        // Award or process resource
+        switch (type)
+        {
+            case ResourceType.Crystal:
+                CurrencyManager.Instance.Add(1);
+                break;
+                // add other resource types here if needed
+        }
+
+        // Unregister before destroying so it no longer appears in the stack list
+        RemoveBackedResource(resBehavior);
+        // Cleanup the GameObject
+        if (resBehavior != null && resBehavior.gameObject != null)
+            Destroy(resBehavior.gameObject);
+    }
+
+    /// <summary>
     /// Removes the top-most resource of the given type from the player’s back stack
     /// and returns its GameObject for handing off to a receiver.
     /// </summary>
@@ -199,6 +246,9 @@ public class PlayerScript : MonoBehaviour
     /// </summary>
     public void RegisterBackedResource(ResourceBehavior resource)
     {
+        // Clean out any null references before adding
+        backedResources.RemoveAll(r => r == null);
+
         if (!backedResources.Contains(resource))
         {
             backedResources.Add(resource);
@@ -211,6 +261,9 @@ public class PlayerScript : MonoBehaviour
     /// </summary>
     public void RemoveBackedResource(ResourceBehavior resource)
     {
+        // Clean out any null references before removing
+        backedResources.RemoveAll(r => r == null);
+
         if (backedResources.Remove(resource))
         {
             RebuildStack();
@@ -254,6 +307,10 @@ public class PlayerScript : MonoBehaviour
 
         foreach (var res in available)
         {
+            // Stop if the receiver is already full
+            if (receiver.currentCollected >= receiver.maxCapacity)
+                yield break;
+
             res.DepositTo(receiver.gameObject);
             RemoveBackedResource(res);
             yield return new WaitForSeconds(interval);

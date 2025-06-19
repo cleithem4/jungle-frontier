@@ -40,9 +40,6 @@ public class ResourceBehavior : MonoBehaviour
         if (delay > 0f)
             yield return new WaitForSeconds(delay);
 
-        // Get next stack height from player
-        float yOffset = player.GetNextStackDepth(resourceData.resourceType);
-
         // Disable physics if present
         if (TryGetComponent<Rigidbody>(out var rb))
         {
@@ -53,20 +50,24 @@ public class ResourceBehavior : MonoBehaviour
 
         // Animate flight onto player back
         Vector3 startPos = transform.position;
-        Vector3 endPos = playerStackPoint.position + Vector3.up * yOffset;
         float elapsed = 0f;
         while (elapsed < pickupDuration)
         {
             float t = Mathf.SmoothStep(0f, 1f, elapsed / pickupDuration);
-            transform.position = Vector3.Lerp(startPos, endPos, t);
+            // Recalculate stack height each frame
+            float yOffset = player.GetNextStackDepth(resourceData.resourceType);
+            Vector3 currentTarget = playerStackPoint.position + Vector3.up * yOffset;
+            transform.position = Vector3.Lerp(startPos, currentTarget, t);
             elapsed += Time.deltaTime;
             yield return null;
         }
-        transform.position = endPos;
+        // Snap to player's current stack height
+        float finalYOffset = player.GetNextStackDepth(resourceData.resourceType);
+        transform.position = playerStackPoint.position + Vector3.up * finalYOffset;
 
         // Parent to stackPoint
         transform.SetParent(playerStackPoint, worldPositionStays: false);
-        transform.localPosition = new Vector3(0f, yOffset, 0f);
+        transform.localPosition = new Vector3(0f, finalYOffset, 0f);
         transform.localRotation = Quaternion.identity;
 
         // Notify player of new resource
