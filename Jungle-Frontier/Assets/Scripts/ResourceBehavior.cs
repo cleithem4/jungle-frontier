@@ -14,6 +14,8 @@ public class ResourceBehavior : MonoBehaviour
     public float pickupDuration = 0.5f;
 
     private Resource resourceData;
+    // Expose the resource type for external checks (e.g., in BuyZone)
+    public ResourceType resourceType => resourceData.resourceType;
     private ResourceCollector collector;
 
     void Awake()

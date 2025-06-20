@@ -109,6 +109,8 @@ public class BuyZone : MonoBehaviour
     {
         if (!other.CompareTag("Player"))
             return;
+        // Exit early if this BuyZone is already full
+        if (currentCollected >= amountNeeded) return;
 
         // Accumulate time
         sellTimer += Time.deltaTime;
@@ -140,13 +142,21 @@ public class BuyZone : MonoBehaviour
         if (collector == null || collector.HeldCount <= 0)
             return;
 
-        // Pull one and deposit
+        // Pull one resource
         GameObject piece = collector.ProvideResource();
-        if (piece != null)
+        if (piece == null)
+            return;
+
+        // Verify it's the right type; destroy if not matching
+        var resBehavior = piece.GetComponent<ResourceBehavior>();
+        if (resBehavior == null || resBehavior.resourceType != requiredResource)
         {
-            var resBehavior = piece.GetComponent<ResourceBehavior>();
-            resBehavior?.DepositTo(gameObject);
+            Destroy(piece);
+            return;
         }
+
+        // Deposit the resource into this zone
+        resBehavior.DepositTo(gameObject);
     }
 
     private IEnumerator AnimateFill(float target, float duration)
@@ -217,6 +227,16 @@ public class BuyZone : MonoBehaviour
     /// </summary>
     public void ReceiveResource(GameObject resourceGO)
     {
+        if (resourceGO != null)
+        {
+            var behavior = resourceGO.GetComponent<ResourceBehavior>();
+            if (behavior == null || behavior.resourceType != requiredResource || currentCollected + 1 > amountNeeded)
+            {
+                Destroy(resourceGO);
+                return;
+            }
+        }
+
         // Update count
         currentCollected++;
         // Fill animation

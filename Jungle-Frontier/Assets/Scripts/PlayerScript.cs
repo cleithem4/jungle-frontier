@@ -4,7 +4,8 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-public class PlayerScript : MonoBehaviour, ResourceCollector
+
+public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
 {
     public JoyStick joystick; // Reference to your joystick
     public float moveSpeed = 5f;
@@ -16,6 +17,10 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
     public float chopDamage = 1f;
     [Tooltip("Time interval (in seconds) between each chop hit.")]
     public float chopInterval = 1f;
+
+    [Header("Combat Knockback")]
+    [Tooltip("Force applied to enemies when attacked.")]
+    public float attackKnockbackForce = 5f;
 
     private Dictionary<ResourceType, int> inventory = new();
 
@@ -40,6 +45,20 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
         return GetComponent<ResourceCarrier>().GetNextStackDepth(type);
     }
 
+    // Agent interface implementation
+    public Transform Transform => transform;
+    public GameObject GameObject => gameObject;
+
+    private void OnEnable()
+    {
+        CombatManager.Instance.RegisterAgent(this);
+    }
+
+    private void OnDisable()
+    {
+        CombatManager.Instance.UnregisterAgent(this);
+    }
+
     // Direct animation state management
     private enum PlayerAnimState { Idle, Running, Chopping }
     private PlayerAnimState _currentAnimState = PlayerAnimState.Idle;
@@ -59,6 +78,19 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
         // Calculate speed (magnitude of movement)
         float speed = move.magnitude;
 
+        // If standing near an enemy, auto-attack it
+        if (nearEnemy != null)
+        {
+            attackTimer += Time.deltaTime;
+            if (attackTimer >= chopInterval)
+            {
+                Vector3 knockback = (nearEnemy.transform.position - transform.position).normalized * attackKnockbackForce;
+                var attack = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
+                nearEnemy.Damage(attack);
+                attackTimer = 0f;
+            }
+        }
+
         // If the current tree has been chopped down, stop chopping
         if (nearTree != null && nearTree.isChopped)
         {
@@ -68,11 +100,12 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
 
         if (nearTree != null)
         {
-            // Accumulate time and apply damage at each interval
             chopTimer += Time.deltaTime;
             if (chopTimer >= chopInterval)
             {
-                nearTree.Damage(chopDamage, this);
+                Vector3 knockback = (nearTree.transform.position - transform.position).normalized * attackKnockbackForce;
+                var attack = new AttackData(chopDamage, this, "chop");
+                nearTree.Damage(attack);
                 chopTimer = 0f;
             }
         }
@@ -94,7 +127,9 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
 
         // Override animator states directly
         PlayerAnimState newState;
-        if (nearTree != null)
+        if (nearEnemy != null)
+            newState = PlayerAnimState.Chopping;
+        else if (nearTree != null)
             newState = PlayerAnimState.Chopping;
         else if (move.magnitude > 0.01f)
             newState = PlayerAnimState.Running;
@@ -121,6 +156,10 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
 
     private Tree nearTree = null;
     private float chopTimer = 0f;
+
+    // Track nearby enemy for auto-attack
+    private EnemyBase nearEnemy = null;
+    private float attackTimer = 0f;
 
     public void SetNearTree(Tree tree)
     {
@@ -282,6 +321,14 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
         {
             SetNearTree(tree);
         }
+
+        // Detect enemy proximity
+        var enemy = other.GetComponent<EnemyBase>();
+        if (enemy != null)
+        {
+            nearEnemy = enemy;
+            attackTimer = 0f;
+        }
     }
 
     // Detect when leaving a tree’s trigger zone
@@ -291,6 +338,14 @@ public class PlayerScript : MonoBehaviour, ResourceCollector
         if (tree != null)
         {
             ClearNearTree(tree);
+        }
+
+        // Clear enemy proximity
+        var enemyExit = other.GetComponent<EnemyBase>();
+        if (enemyExit != null && nearEnemy == enemyExit)
+        {
+            nearEnemy = null;
+            attackTimer = 0f;
         }
     }
 }

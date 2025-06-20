@@ -5,5 +5,6 @@ public enum ResourceType
     Cash,
     Crystal,
     Stone,
-    Wood
+    Wood,
+    SnakeStone
 }

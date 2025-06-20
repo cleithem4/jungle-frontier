@@ -4,6 +4,7 @@ using UnityEngine;
 using static ResourceType;
 
 
+
 public class Tree : MonoBehaviour
 {
 
@@ -99,10 +100,11 @@ public class Tree : MonoBehaviour
     /// <summary>
     /// Deal damage to the tree; shakes on hit and chops when health depletes.
     /// </summary>
-    public void Damage(float amount, ResourceCollector harvester)
+    public void Damage(AttackData atk)
     {
         // Record exactly who dealt the last hit
-        lastHarvester = harvester;
+        lastHarvester = atk.source as ResourceCollector;
+        float amount = atk.damage;
 
         Debug.Log($"[Tree] Damage called. Amount: {amount}, CurrentHealth before: {currentHealth}");
         if (isChopped) return;

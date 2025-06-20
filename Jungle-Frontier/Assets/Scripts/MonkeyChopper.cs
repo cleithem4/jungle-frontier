@@ -2,13 +2,15 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
 
+
+
 /// <summary>
 /// Worker monkey that chops down trees, collects wood, and delivers it to a stockpile.
 /// </summary>
 
 [RequireComponent(typeof(NavMeshAgent), typeof(ResourceCarrier))]
 [RequireComponent(typeof(ResourceSender))]
-public class MonkeyChopper : WorkerBase
+public class MonkeyChopper : WorkerBase, Agent
 {
     [Header("Chop Settings")]
     [Tooltip("Damage dealt to a tree per chop hit.")]
@@ -23,6 +25,20 @@ public class MonkeyChopper : WorkerBase
     private ResourceSender resourceSender;
     private Animator animator;
     private ResourceCarrier carrier;
+
+    // Agent interface implementation
+    public Transform Transform => transform;
+    public GameObject GameObject => gameObject;
+
+    private void OnEnable()
+    {
+        CombatManager.Instance.RegisterAgent(this);
+    }
+
+    private void OnDisable()
+    {
+        CombatManager.Instance.UnregisterAgent(this);
+    }
 
     /// <summary>
     /// Finds the nearest un-chopped Tree to this monkey.
@@ -88,7 +104,9 @@ public class MonkeyChopper : WorkerBase
                 while (!tree.isChopped)
                 {
                     animator.CrossFade("Chop", 0.1f, 0);
-                    tree.Damage(chopDamage, carrier);
+                    // Create an AttackData instance for chopping
+                    var attack = new AttackData(chopDamage, carrier, "chop");
+                    tree.Damage(attack);
                     yield return new WaitForSeconds(chopInterval);
                 }
             }
