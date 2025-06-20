@@ -4,41 +4,49 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-public class PlayerScript : MonoBehaviour
+public class PlayerScript : MonoBehaviour, ResourceCollector
 {
     public JoyStick joystick; // Reference to your joystick
     public float moveSpeed = 5f;
     public float rotationSpeed = 720f; // degrees per second
     private Animator animator;
 
-    public Transform stackPoint; // general stacking point
-    private float pieceDepth = 0.35f;
-
-    private Tree nearTree = null;
-    private bool isChopping = false;
-    private float chopTimer = 0f;
+    [Header("Chopping Settings")]
+    [Tooltip("Damage dealt to a tree per chop hit.")]
+    public float chopDamage = 1f;
+    [Tooltip("Time interval (in seconds) between each chop hit.")]
+    public float chopInterval = 1f;
 
     private Dictionary<ResourceType, int> inventory = new();
 
-    // Tracks resource GameObjects currently on the player’s back
-    private List<ResourceBehavior> backedResources = new List<ResourceBehavior>();
+    [Header("Carry Settings")]
+    [Tooltip("Maximum number of resources the player can carry.")]
+    public int capacity = 10;
+
+    // ResourceCollector interface
+    public int Capacity => capacity;
+    public int HeldCount => GetComponent<ResourceCarrier>().HeldCount;
+    public bool IsFull => GetComponent<ResourceCarrier>().IsFull;
+
+    // ResourceCollector: where picked-up items should be parented
+    public Transform CarryPivot => GetComponent<ResourceCarrier>().carryPivot;
+
+    // ResourceCollector alias for legacy naming
+    public Transform StackPoint => CarryPivot;
+
+    // ResourceCollector: compute next stack height
+    public float GetNextStackDepth(ResourceType type)
+    {
+        return GetComponent<ResourceCarrier>().GetNextStackDepth(type);
+    }
+
+    // Direct animation state management
+    private enum PlayerAnimState { Idle, Running, Chopping }
+    private PlayerAnimState _currentAnimState = PlayerAnimState.Idle;
 
     void Start()
     {
         animator = GetComponentInChildren<Animator>();
-        if (animator == null)
-        {
-            Debug.LogError("Animator not found on Player or its children!");
-        }
-        else
-        {
-            Debug.Log("Animator found: " + animator.gameObject.name);
-        }
-
-        if (stackPoint == null)
-        {
-            Debug.LogError("stackPoint is not assigned on PlayerScript! Please assign it in the Inspector.");
-        }
     }
 
     void Update()
@@ -51,33 +59,28 @@ public class PlayerScript : MonoBehaviour
         // Calculate speed (magnitude of movement)
         float speed = move.magnitude;
 
+        // If the current tree has been chopped down, stop chopping
+        if (nearTree != null && nearTree.isChopped)
+        {
+            nearTree = null;
+            chopTimer = 0f;
+        }
+
         if (nearTree != null)
         {
-            // Standing near tree
-            if (!isChopping)
-            {
-                PlayChopAnimation();
-            }
-
-            // Update chop timer
+            // Accumulate time and apply damage at each interval
             chopTimer += Time.deltaTime;
-            if (chopTimer >= nearTree.GetChopTime())
+            if (chopTimer >= chopInterval)
             {
-                nearTree.ChopTree();
-                ClearNearTree(nearTree);
+                nearTree.Damage(chopDamage, this);
+                chopTimer = 0f;
             }
         }
         else
         {
-            // Moving or not near tree → stop chopping
-            if (isChopping)
-            {
-                StopChopAnimation();
-            }
+            // Not near a tree: reset timer
+            chopTimer = 0f;
         }
-
-        // Set animator Speed parameter
-        animator.SetFloat("Speed", speed);
 
         if (move.magnitude > 0.01f) // only move/rotate if input is significant
         {
@@ -88,7 +91,36 @@ public class PlayerScript : MonoBehaviour
             Quaternion targetRotation = Quaternion.LookRotation(move, Vector3.up);
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
+
+        // Override animator states directly
+        PlayerAnimState newState;
+        if (nearTree != null)
+            newState = PlayerAnimState.Chopping;
+        else if (move.magnitude > 0.01f)
+            newState = PlayerAnimState.Running;
+        else
+            newState = PlayerAnimState.Idle;
+
+        if (newState != _currentAnimState)
+        {
+            _currentAnimState = newState;
+            switch (_currentAnimState)
+            {
+                case PlayerAnimState.Idle:
+                    animator.CrossFade("Idle", 0.1f, 0);
+                    break;
+                case PlayerAnimState.Running:
+                    animator.CrossFade("Run", 0.1f, 0);
+                    break;
+                case PlayerAnimState.Chopping:
+                    animator.CrossFade("Chop", 0.1f, 0);
+                    break;
+            }
+        }
     }
+
+    private Tree nearTree = null;
+    private float chopTimer = 0f;
 
     public void SetNearTree(Tree tree)
     {
@@ -101,32 +133,7 @@ public class PlayerScript : MonoBehaviour
         if (nearTree == tree)
         {
             nearTree = null;
-            StopChopAnimation();
         }
-    }
-
-    public void PlayChopAnimation()
-    {
-        isChopping = true;
-        animator.SetBool("isChopping", true);
-    }
-
-    public void StopChopAnimation()
-    {
-        isChopping = false;
-        animator.SetBool("isChopping", false);
-    }
-
-    public float GetNextStackDepth(ResourceType type)
-    {
-        // Remove any destroyed or null references before counting
-        backedResources.RemoveAll(r => r == null);
-
-        // Determine stack height by counting existing backed resources of this type
-        int count = backedResources
-            .Count(r => r.GetComponent<Resource>().resourceType == type);
-        float depth = count * pieceDepth;
-        return depth;
     }
 
     public bool HasResource(ResourceType type)
@@ -151,10 +158,8 @@ public class PlayerScript : MonoBehaviour
         if (HasResource(type))
         {
             inventory[type]--;
-            Debug.Log($"[PlayerScript] Spent 1 {type}. Remaining: {inventory[type]}");
             return true;
         }
-        Debug.LogWarning($"[PlayerScript] Not enough {type} to spend.");
         return false;
     }
 
@@ -163,7 +168,6 @@ public class PlayerScript : MonoBehaviour
         if (!inventory.ContainsKey(type))
             inventory[type] = 0;
         inventory[type]++;
-        Debug.Log($"[PlayerScript] Resource {type} count is now: {inventory[type]}");
     }
 
     public int GetResourceCount(ResourceType type)
@@ -181,9 +185,8 @@ public class PlayerScript : MonoBehaviour
         switch (type)
         {
             case ResourceType.Wood:
-                // Fly onto back and register for stacking
-                resBehavior.pickupDuration = pickupDuration;
-                resBehavior.Pickup(this, stackPoint, 0f);
+                // Use generic carrier pickup
+                Pickup(resBehavior.gameObject);
                 break;
 
             default:
@@ -197,10 +200,11 @@ public class PlayerScript : MonoBehaviour
     {
         // Fly to player
         resBehavior.pickupDuration = duration;
-        resBehavior.Pickup(this, stackPoint, 0f);
+        // Initiate pickup using the assigned pickupDuration
+        resBehavior.Pickup(this);
 
         // Wait until it lands on the player's back
-        while (resBehavior != null && resBehavior.transform.parent != stackPoint)
+        while (resBehavior != null && resBehavior.transform.parent != null)
             yield return null;
 
         // Award or process resource
@@ -212,76 +216,9 @@ public class PlayerScript : MonoBehaviour
                 // add other resource types here if needed
         }
 
-        // Unregister before destroying so it no longer appears in the stack list
-        RemoveBackedResource(resBehavior);
         // Cleanup the GameObject
         if (resBehavior != null && resBehavior.gameObject != null)
             Destroy(resBehavior.gameObject);
-    }
-
-    /// <summary>
-    /// Removes the top-most resource of the given type from the player’s back stack
-    /// and returns its GameObject for handing off to a receiver.
-    /// </summary>
-    public GameObject ProvideResource(ResourceType type)
-    {
-        // Find the highest-stacked resource of this type
-        var res = backedResources
-            .Where(r => r.GetComponent<Resource>().resourceType == type)
-            .OrderByDescending(r => r.transform.localPosition.y)
-            .FirstOrDefault();
-        if (res == null)
-            return null;
-
-        // Detach from player stack
-        RemoveBackedResource(res);
-
-        // Unparent so flight coroutine can move it freely
-        res.transform.SetParent(null, worldPositionStays: true);
-        return res.gameObject;
-    }
-
-    /// <summary>
-    /// Registers a resource piece on the player’s back and reflows the stack.
-    /// </summary>
-    public void RegisterBackedResource(ResourceBehavior resource)
-    {
-        // Clean out any null references before adding
-        backedResources.RemoveAll(r => r == null);
-
-        if (!backedResources.Contains(resource))
-        {
-            backedResources.Add(resource);
-            RebuildStack();
-        }
-    }
-
-    /// <summary>
-    /// Unregisters a resource piece (e.g., when it sells itself) and reflows the stack.
-    /// </summary>
-    public void RemoveBackedResource(ResourceBehavior resource)
-    {
-        // Clean out any null references before removing
-        backedResources.RemoveAll(r => r == null);
-
-        if (backedResources.Remove(resource))
-        {
-            RebuildStack();
-        }
-    }
-
-    /// <summary>
-    /// Repositions all backed resource pieces under the stackPoint, spacing them by pieceDepth.
-    /// </summary>
-    private void RebuildStack()
-    {
-        for (int i = 0; i < backedResources.Count; i++)
-        {
-            var res = backedResources[i].transform;
-            res.SetParent(stackPoint, worldPositionStays: false);
-            res.localPosition = new Vector3(0, pieceDepth * i, 0);
-            res.localRotation = Quaternion.identity;
-        }
     }
 
     /// <summary>
@@ -297,23 +234,63 @@ public class PlayerScript : MonoBehaviour
         int needed = receiver.maxCapacity - receiver.currentCollected;
         if (needed <= 0) yield break;
 
-        var available = backedResources
-            .OrderByDescending(r => r.transform.localPosition.y)
-            .Take(needed)
-            .ToList();
+        var available = GetComponent<ResourceCarrier>()
+            .DrainResources(needed);
 
         float totalDuration = 3f;
         float interval = totalDuration / (available.Count > 0 ? available.Count : 1);
 
-        foreach (var res in available)
+        foreach (var resGO in available)
         {
             // Stop if the receiver is already full
             if (receiver.currentCollected >= receiver.maxCapacity)
                 yield break;
 
-            res.DepositTo(receiver.gameObject);
-            RemoveBackedResource(res);
+            var resBehavior = resGO.GetComponent<ResourceBehavior>();
+            if (resBehavior != null)
+            {
+                resBehavior.DepositTo(receiver.gameObject);
+            }
             yield return new WaitForSeconds(interval);
+        }
+    }
+
+    /// <summary>
+    /// Picks up a resource GameObject via the generic interface.
+    /// </summary>
+    public bool Pickup(GameObject resourceGO)
+    {
+        if (resourceGO == null) return false;
+        // Delegate to ResourceCarrier
+        return GetComponent<ResourceCarrier>().Pickup(resourceGO);
+    }
+
+    /// <summary>
+    /// Provides (removes and returns) the top resource GameObject.
+    /// </summary>
+    public GameObject ProvideResource()
+    {
+        // Delegate to ResourceCarrier
+        return GetComponent<ResourceCarrier>().ProvideResource();
+    }
+    // Detect when entering a tree’s trigger zone
+    private void OnTriggerEnter(Collider other)
+    {
+        // If this collider belongs to a Tree and it’s not already chopped
+        var tree = other.GetComponent<Tree>();
+        if (tree != null && !tree.isChopped)
+        {
+            SetNearTree(tree);
+        }
+    }
+
+    // Detect when leaving a tree’s trigger zone
+    private void OnTriggerExit(Collider other)
+    {
+        var tree = other.GetComponent<Tree>();
+        if (tree != null)
+        {
+            ClearNearTree(tree);
         }
     }
 }

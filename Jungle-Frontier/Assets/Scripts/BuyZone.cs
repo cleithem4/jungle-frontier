@@ -46,6 +46,13 @@ public class BuyZone : MonoBehaviour
     [Header("Camera Shake")]
     public CameraFollow cameraFollow;  // assign your CameraFollow component here
 
+    [Header("Sell Settings")]
+    [Tooltip("Time interval between each resource sale while standing in the zone.")]
+    public float sellInterval = 0.5f;
+    [Tooltip("Total time (in seconds) to fill the buyzone when using crystals.")]
+    public float crystalSellDuration = 2f;
+    private float sellTimer = 0f;
+
     void Start()
     {
         // Create a Sprite from the Texture2D at runtime and assign to the Image
@@ -76,10 +83,18 @@ public class BuyZone : MonoBehaviour
         if (!other.CompareTag("Player")) return;
         onPlayerEnter?.Invoke();
 
-        var playerScript = other.GetComponent<PlayerScript>();
-        if (playerScript == null) return;
+        // If this BuyZone is priced in global currency (crystals), handle spending directly
+        if (requiredResource == ResourceType.Crystal)
+        {
+            var cm = CurrencyManager.Instance;
+            if (cm == null || cm.CurrentCurrency <= 0)
+                return;
 
-        playerScript.SellToBuyZone(this);
+            // Subtract one unit of currency and register a purchase
+            cm.TrySpend(1);
+            ReceiveResource(null);
+            return;
+        }
     }
 
     private void OnTriggerExit(Collider other)
@@ -87,6 +102,50 @@ public class BuyZone : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             onPlayerExit?.Invoke();
+        }
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        if (!other.CompareTag("Player"))
+            return;
+
+        // Accumulate time
+        sellTimer += Time.deltaTime;
+
+        // Crystal-priced zone: dynamic interval based on remaining need
+        if (requiredResource == ResourceType.Crystal)
+        {
+            int remaining = amountNeeded - currentCollected;
+            if (remaining <= 0) return;
+            float interval = crystalSellDuration / remaining;
+            if (sellTimer < interval) return;
+            sellTimer = 0f;
+
+            var cm = CurrencyManager.Instance;
+            if (cm != null && cm.CurrentCurrency > 0)
+            {
+                cm.TrySpend(1);
+                ReceiveResource(null);
+            }
+            return;
+        }
+
+        // Physical-resource zone: fixed interval per item
+        if (sellTimer < sellInterval)
+            return;
+        sellTimer = 0f;
+
+        var collector = other.GetComponent<ResourceCollector>();
+        if (collector == null || collector.HeldCount <= 0)
+            return;
+
+        // Pull one and deposit
+        GameObject piece = collector.ProvideResource();
+        if (piece != null)
+        {
+            var resBehavior = piece.GetComponent<ResourceBehavior>();
+            resBehavior?.DepositTo(gameObject);
         }
     }
 

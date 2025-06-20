@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Events;
+// ensure ResourceCollector is in scope
 
 [RequireComponent(typeof(ResourceReceiver))]
 public class TradePost : MonoBehaviour
@@ -38,6 +39,7 @@ public class TradePost : MonoBehaviour
     private Coroutine _collectCoroutine;
     private float _nextStackHeight = 0f;
     private ResourceReceiver receiver;
+    // Cached receiver for convenience
 
     // Remember original ground position for drop-in
     private Vector3 _groundPosition;
@@ -113,40 +115,50 @@ public class TradePost : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            var player = other.GetComponent<PlayerScript>();
-            if (player != null && _collectCoroutine == null)
-                _collectCoroutine = StartCoroutine(CollectResources(player));
-        }
+        if (!other.CompareTag("Player")) return;
+        if (_collectCoroutine != null) return;
+
+        // Any ResourceCollector can deposit here
+        var collector = other.GetComponent<ResourceCollector>();
+        if (collector != null)
+            _collectCoroutine = StartCoroutine(CollectResources(collector));
     }
 
     void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Player") && _collectCoroutine != null)
+        if (!other.CompareTag("Player")) return;
+        if (_collectCoroutine != null)
         {
             StopCoroutine(_collectCoroutine);
             _collectCoroutine = null;
         }
     }
 
-    private IEnumerator CollectResources(PlayerScript player)
+    private IEnumerator CollectResources(ResourceCollector collector)
     {
         _nextStackHeight = 0f;
-        // Keep pulling from player until none left
-        while (player.HasResource(acceptedResource))
+        // Keep pulling from the collector until none of the accepted type remain
+        while (true)
         {
-            // delay before next send
             yield return new WaitForSeconds(Random.Range(flyDelayMin, flyDelayMax));
 
-            // Ask the player to hand over one resource GameObject
-            var piece = player.ProvideResource(acceptedResource);
+            // Ask the collector for the next resource
+            var piece = collector.ProvideResource();
             if (piece == null)
                 break;
+            // Ensure it’s the right type
+            var res = piece.GetComponent<Resource>();
+            if (res == null || res.resourceType != acceptedResource)
+            {
+                // return unwanted item
+                collector.Pickup(piece);
+                break;
+            }
 
-            // Have that piece fly to this receiver
+            // Deposit it into this post
             var resBehavior = piece.GetComponent<ResourceBehavior>();
-            resBehavior.DepositTo(gameObject);
+            if (resBehavior != null)
+                resBehavior.DepositTo(gameObject);
         }
 
         onCollectionComplete.Invoke();
@@ -159,33 +171,7 @@ public class TradePost : MonoBehaviour
     /// </summary>
     public GameObject ProvideResource(ResourceType type)
     {
-        // Find all stacked children under collectionStackPoint matching the type
-        var items = collectionStackPoint
-            .GetComponentsInChildren<Transform>(true)
-            .Where(t => t != collectionStackPoint)
-            .Select(t => t.gameObject)
-            .Where(go =>
-            {
-                var res = go.GetComponent<Resource>();
-                return res != null && res.resourceType == type;
-            })
-            .OrderByDescending(go => go.transform.localPosition.y)
-            .ToList();
-
-        if (items.Count == 0)
-            return null;
-
-        // Take the top item
-        var top = items[0];
-        // Detach so it can move freely
-        top.transform.SetParent(null, worldPositionStays: true);
-        // Restack the remainder
-        var stackingLayout = GetComponent<StackingLayout>();
-        if (stackingLayout != null)
-        {
-            // Force a restack via its listener
-            GetComponent<ResourceReceiver>().onResourceReceived.Invoke(null);
-        }
-        return top;
+        // Simply pull from the underlying receiver (which only accepts this type)
+        return receiver.ProvideResource();
     }
 }

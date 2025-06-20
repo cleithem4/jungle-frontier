@@ -51,8 +51,11 @@ public class ResourcePickupZone : MonoBehaviour
             if (acceptedTypes != null && !acceptedTypes.Contains(resData.resourceType))
                 continue;
 
-            // Hand off each resource to the player
-            player.CollectResource(resBehavior, pickupDuration);
+            // Detach this resource from the zone’s stack
+            t.SetParent(null, worldPositionStays: true);
+            receiver.currentCollected = Mathf.Max(0, receiver.currentCollected - 1);
+            // Fly this resource to the player’s back via ResourceBehavior
+            resBehavior.Pickup(player, pickupDuration);
         }
     }
 }

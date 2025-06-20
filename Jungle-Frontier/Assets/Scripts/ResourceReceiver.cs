@@ -62,4 +62,33 @@ public class ResourceReceiver : MonoBehaviour
         // Invoke any hooked-up callbacks (e.g., positioning, inventory count, UI updates)
         onResourceReceived?.Invoke(resourceGO);
     }
+
+    /// <summary>
+    /// True if this receiver has reached its maxCapacity.
+    /// </summary>
+    public bool IsFull => maxCapacity > 0 && currentCollected >= maxCapacity;
+
+    /// <summary>
+    /// Number of resource GameObjects currently stacked under stackPoint.
+    /// </summary>
+    public int HeldCount => stackPoint != null ? stackPoint.childCount : currentCollected;
+
+    /// <summary>
+    /// Removes and returns the top resource GameObject from this receiver’s stack.
+    /// </summary>
+    public GameObject ProvideResource()
+    {
+        if (stackPoint == null || stackPoint.childCount == 0)
+            return null;
+
+        // Take the last child as the top of the stack
+        Transform top = stackPoint.GetChild(stackPoint.childCount - 1);
+        GameObject go = top.gameObject;
+
+        // Unparent and update count
+        top.SetParent(null, worldPositionStays: true);
+        currentCollected = Mathf.Max(0, currentCollected - 1);
+
+        return go;
+    }
 }

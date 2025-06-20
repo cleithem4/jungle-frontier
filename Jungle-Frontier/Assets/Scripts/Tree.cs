@@ -1,11 +1,20 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using static ResourceType;
 
 
 public class Tree : MonoBehaviour
 {
-    public float chopTime = 2f; // seconds to chop the tree
+
+
+    [Header("Chop Health")]
+    public float maxHealth = 5f;
+    private float currentHealth;
+
+    [Header("Chop Settings")]
+    [Tooltip("Position where workers should stand to chop this tree.")]
+    public Transform chopPoint;
 
     [Header("Respawn Settings")]
     public GameObject stumpPrefab;
@@ -18,7 +27,8 @@ public class Tree : MonoBehaviour
     private Vector3 _initialPosition;
     private Vector3 _initialScale;
 
-    private PlayerScript player;
+    // Tracks whoever last chopped this tree
+    private ResourceCollector lastHarvester;
     public GameObject woodPiecePrefab; // assign in inspector
 
     void Awake()
@@ -27,32 +37,34 @@ public class Tree : MonoBehaviour
         _colliders = GetComponentsInChildren<Collider>();
         _initialPosition = transform.position;
         _initialScale = transform.localScale;
+
+        // Initialize health
+        currentHealth = maxHealth;
+
+        // Ensure there is always a valid chop point
+        if (chopPoint == null)
+            chopPoint = this.transform;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player") && !isChopped)
+        Debug.Log($"[Tree] OnTriggerEnter with {other.gameObject.name}. IsChopped: {isChopped}");
+        if (!isChopped)
         {
-            player = other.GetComponent<PlayerScript>();
-            if (player != null)
+            var collector = other.GetComponent<ResourceCollector>();
+            if (collector != null)
             {
-                player.SetNearTree(this);
+                lastHarvester = collector;
+                // Optionally notify collector if needed
             }
         }
     }
 
-    private void OnTriggerExit(Collider other)
-    {
-        if (other.CompareTag("Player") && player != null)
-        {
-            player.ClearNearTree(this);
-        }
-    }
-
-    private bool isChopped = false;
+    public bool isChopped = false;
 
     public void ChopTree()
     {
+        Debug.Log($"[Tree] ChopTree() invoked. LastHarvester: {lastHarvester}");
         isChopped = true;
         Debug.Log("Tree chopped!");
 
@@ -69,15 +81,12 @@ public class Tree : MonoBehaviour
                 rb.AddForce(randomForce, ForceMode.Impulse);
             }
 
-            if (this.player != null)
+            if (lastHarvester != null)
             {
-                float delay = Random.Range(0f, 0.3f); // random delay so they don't fly all at once
-
+                float delay = Random.Range(0f, 0.3f); // randomize so pieces don't all fly at once
                 var resBehavior = woodPiece.GetComponent<ResourceBehavior>();
                 if (resBehavior != null)
-                {
-                    resBehavior.Pickup(this.player, this.player.stackPoint, delay);
-                }
+                    resBehavior.Pickup(lastHarvester, delay);
             }
         }
 
@@ -87,17 +96,39 @@ public class Tree : MonoBehaviour
         StartCoroutine(RespawnAndGrow());
     }
 
-    public float GetChopTime()
+    /// <summary>
+    /// Deal damage to the tree; shakes on hit and chops when health depletes.
+    /// </summary>
+    public void Damage(float amount, ResourceCollector harvester)
     {
-        return chopTime;
+        // Record exactly who dealt the last hit
+        lastHarvester = harvester;
+
+        Debug.Log($"[Tree] Damage called. Amount: {amount}, CurrentHealth before: {currentHealth}");
+        if (isChopped) return;
+
+        // Reduce health and trigger shake if available
+        currentHealth -= amount;
+        Debug.Log($"[Tree] CurrentHealth after: {currentHealth}");
+        var shaker = GetComponent<TreeShaker>();
+        if (shaker != null)
+            shaker.Shake();
+
+        // When health is gone, chop the tree
+        if (currentHealth <= 0f)
+            ChopTree();
     }
+
 
     private void SetTreeActive(bool on)
     {
+        Debug.Log($"[Tree] SetTreeActive({on}) called.");
         foreach (var r in _renderers) r.enabled = on;
         foreach (var c in _colliders) c.enabled = on;
         transform.localScale = on ? _initialScale : Vector3.zero;
         isChopped = !on;
+        if (on)
+            currentHealth = maxHealth;
     }
 
     private IEnumerator RespawnAndGrow()

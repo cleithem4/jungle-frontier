@@ -14,8 +14,7 @@ public class ResourceBehavior : MonoBehaviour
     public float pickupDuration = 0.5f;
 
     private Resource resourceData;
-    private PlayerScript player;
-    private Transform playerStackPoint;
+    private ResourceCollector collector;
 
     void Awake()
     {
@@ -26,12 +25,12 @@ public class ResourceBehavior : MonoBehaviour
     /// Kicks off the pickup routine: the resource flies to the player's stack.
     /// </summary>
     /// <param name="who">The player instance picking this up.</param>
-    /// <param name="stackPoint">Transform where the resource should land.</param>
     /// <param name="delay">Optional delay before starting the pickup.</param>
-    public void Pickup(PlayerScript who, Transform stackPoint, float delay = 0f)
+    public void Pickup(ResourceCollector who, float delay = 0f)
     {
-        player = who;
-        playerStackPoint = stackPoint;
+        if (who == null) { Debug.LogWarning("[ResourceBehavior] Pickup called with null collector"); return; }
+        collector = who;
+        StopAllCoroutines();
         StartCoroutine(PickupRoutine(delay));
     }
 
@@ -39,6 +38,10 @@ public class ResourceBehavior : MonoBehaviour
     {
         if (delay > 0f)
             yield return new WaitForSeconds(delay);
+
+        // Abort if no valid collector
+        if (collector == null)
+            yield break;
 
         // Disable physics if present
         if (TryGetComponent<Rigidbody>(out var rb))
@@ -55,24 +58,18 @@ public class ResourceBehavior : MonoBehaviour
         {
             float t = Mathf.SmoothStep(0f, 1f, elapsed / pickupDuration);
             // Recalculate stack height each frame
-            float yOffset = player.GetNextStackDepth(resourceData.resourceType);
-            Vector3 currentTarget = playerStackPoint.position + Vector3.up * yOffset;
+            float yOffset = collector.GetNextStackDepth(resourceData.resourceType);
+            Vector3 currentTarget = collector.StackPoint.position + Vector3.up * yOffset;
             transform.position = Vector3.Lerp(startPos, currentTarget, t);
             elapsed += Time.deltaTime;
             yield return null;
         }
-        // Snap to player's current stack height
-        float finalYOffset = player.GetNextStackDepth(resourceData.resourceType);
-        transform.position = playerStackPoint.position + Vector3.up * finalYOffset;
 
-        // Parent to stackPoint
-        transform.SetParent(playerStackPoint, worldPositionStays: false);
-        transform.localPosition = new Vector3(0f, finalYOffset, 0f);
-        transform.localRotation = Quaternion.identity;
-
-        // Notify player of new resource
-        player.AddResource(resourceData.resourceType);
-        player.RegisterBackedResource(this);
+        // At end of flight, hand off to the carrier
+        if (collector != null)
+        {
+            collector.Pickup(gameObject);
+        }
     }
 
     /// <summary>
@@ -82,10 +79,6 @@ public class ResourceBehavior : MonoBehaviour
     /// <param name="onComplete">Callback after deposit completes.</param>
     public void DepositTo(GameObject receiverGO, Action onComplete = null)
     {
-        // Remove from player stack immediately
-        player.RemoveResource(resourceData.resourceType);
-        player.RemoveBackedResource(this);
-
         // Use or add ResourceSender to handle flight and delivery
         var sender = GetComponent<ResourceSender>() ?? gameObject.AddComponent<ResourceSender>();
         sender.SendTo(gameObject, receiverGO, onComplete);
