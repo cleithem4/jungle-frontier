@@ -129,7 +129,7 @@ public class EnemyBase : MonoBehaviour, Agent
     {
         if (target == null) return;
 
-        var otherHealth = target.GetComponent<EnemyBase>();
+        var otherHealth = target.GetComponent<Health>();
         if (otherHealth != null)
         {
             // Compute knockback direction

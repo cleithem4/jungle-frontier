@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -39,7 +41,19 @@ public class NPCTrader : MonoBehaviour
     [Tooltip("Name of the idle animation state.")]
     public string idleAnimState = "Idle";
 
-    private enum State { RunningIn, Trading, Dancing, Exiting }
+    // Queue to manage trader order
+    private static Queue<NPCTrader> tradeQueue = new Queue<NPCTrader>();
+
+    /// <summary>
+    /// Remove any null or destroyed traders from the front of the queue.
+    /// </summary>
+    private static void CleanQueue()
+    {
+        while (tradeQueue.Count > 0 && tradeQueue.Peek() == null)
+            tradeQueue.Dequeue();
+    }
+
+    private enum State { Waiting, RunningIn, Trading, Dancing, Exiting }
     private State _state;
     private NavMeshAgent _agent;
     private Animator _anim;
@@ -60,12 +74,39 @@ public class NPCTrader : MonoBehaviour
     /// </summary>
     public void BeginTrade()
     {
+        CleanQueue();
+
         if (tradePost == null || tradePoint == null)
         {
             Destroy(gameObject);
             return;
         }
 
+        // Enqueue this trader and wait for turn
+        tradeQueue.Enqueue(this);
+        _state = State.Waiting;
+        _anim.Play(idleAnimState);
+        AttemptStart();
+    }
+
+    /// <summary>
+    /// If this trader is at the front of the queue, begin running in.
+    /// </summary>
+    private void AttemptStart()
+    {
+        CleanQueue();
+
+        if (tradeQueue.Count > 0 && tradeQueue.Peek() == this)
+        {
+            StartRun();
+        }
+    }
+
+    /// <summary>
+    /// Transitions this trader into the RunningIn state.
+    /// </summary>
+    private void StartRun()
+    {
         _state = State.RunningIn;
         _agent.speed = runSpeed;
         _agent.SetDestination(tradePoint.position);
@@ -74,8 +115,18 @@ public class NPCTrader : MonoBehaviour
 
     void Update()
     {
+        CleanQueue();
+
         switch (_state)
         {
+            case State.Waiting:
+                // If this trader has reached the front of the queue, begin running
+                if (tradeQueue.Count > 0 && tradeQueue.Peek() == this)
+                {
+                    StartRun();
+                }
+                break;
+
             case State.RunningIn:
                 if (!_agent.pathPending && _agent.remainingDistance < _agent.stoppingDistance + 0.1f)
                 {
@@ -106,6 +157,13 @@ public class NPCTrader : MonoBehaviour
             yield return new WaitForSeconds(1f);  // polling interval
             resourceGO = tradePost.ProvideResource(resourceWanted);
         }
+
+        // Remove self from queue and start next trader
+        if (tradeQueue.Count > 0 && tradeQueue.Peek() == this)
+            tradeQueue.Dequeue();
+        if (tradeQueue.Count > 0)
+            tradeQueue.Peek().AttemptStart();
+
         // Resource acquired: award currency
         CurrencyManager.Instance.Add(currencyReward);
 

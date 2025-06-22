@@ -5331,7 +5331,7 @@ MonoBehaviour:
   onPlayerExit:
     m_PersistentCalls:
       m_Calls: []
-  tickParticles: {fileID: 8306237658058029295}
+  tickParticles: {fileID: 3921901769525675839, guid: d41e5d9331ae74d38bb50c95ef85c6f6, type: 3}
   panelCanvas: {fileID: 5693625420800225334}
   shakeDuration: 0.5
   cameraFollow: {fileID: 0}

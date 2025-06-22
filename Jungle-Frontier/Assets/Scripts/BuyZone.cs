@@ -143,7 +143,7 @@ public class BuyZone : MonoBehaviour
             return;
 
         // Pull one resource
-        GameObject piece = collector.ProvideResource();
+        GameObject piece = collector.ProvideResource(requiredResource);
         if (piece == null)
             return;
 

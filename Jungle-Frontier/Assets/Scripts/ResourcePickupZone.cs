@@ -58,4 +58,9 @@ public class ResourcePickupZone : MonoBehaviour
             resBehavior.Pickup(player, pickupDuration);
         }
     }
+    void OnTriggerStay(Collider other)
+    {
+        // Continuously pick up crystals while the player remains in the zone
+        OnTriggerEnter(other);
+    }
 }

@@ -307,10 +307,10 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     /// <summary>
     /// Provides (removes and returns) the top resource GameObject.
     /// </summary>
-    public GameObject ProvideResource()
+    public GameObject ProvideResource(ResourceType resourceType)
     {
         // Delegate to ResourceCarrier
-        return GetComponent<ResourceCarrier>().ProvideResource();
+        return GetComponent<ResourceCarrier>().ProvideResource(resourceType);
     }
     // Detect when entering a tree’s trigger zone
     private void OnTriggerEnter(Collider other)

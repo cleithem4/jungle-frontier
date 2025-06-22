@@ -37,7 +37,7 @@ public interface ResourceCollector
     /// <summary>
     /// Provide (remove and return) a held resource GameObject.
     /// </summary>
-    GameObject ProvideResource();
+    GameObject ProvideResource(ResourceType type);
 }
 
 /// <summary>
@@ -119,27 +119,33 @@ public class ResourceCarrier : MonoBehaviour, ResourceCollector
     }
 
     /// <summary>
-    /// Removes and returns one held resource (last in). Returns null if empty.
+    /// Removes and returns one held resource matching the specified type. Returns null if none found.
     /// </summary>
-    public GameObject ProvideResource()
+    public GameObject ProvideResource(ResourceType type)
     {
-        if (heldResources.Count == 0)
-            return null;
+        // Search from top of stack backwards for matching type
+        for (int i = heldResources.Count - 1; i >= 0; i--)
+        {
+            GameObject resourceGO = heldResources[i];
+            var resComp = resourceGO.GetComponent<Resource>();
+            if (resComp != null && resComp.resourceType == type)
+            {
+                // Remove from held list
+                heldResources.RemoveAt(i);
 
-        // Take the top item
-        int last = heldResources.Count - 1;
-        GameObject resourceGO = heldResources[last];
-        heldResources.RemoveAt(last);
+                // Unparent and restore physics/collider
+                resourceGO.transform.SetParent(null, worldPositionStays: true);
+                if (resourceGO.TryGetComponent<Rigidbody>(out var rb))
+                    rb.isKinematic = false;
+                if (resourceGO.TryGetComponent<Collider>(out var col))
+                    col.enabled = true;
 
-        // Unparent and restore physics/collider
-        resourceGO.transform.SetParent(null, worldPositionStays: true);
-        if (resourceGO.TryGetComponent<Rigidbody>(out var rb))
-            rb.isKinematic = false;
-        if (resourceGO.TryGetComponent<Collider>(out var col))
-            col.enabled = true;
-
-        Restack();
-        return resourceGO;
+                Restack();
+                return resourceGO;
+            }
+        }
+        // No matching resource found
+        return null;
     }
 
     /// <summary>

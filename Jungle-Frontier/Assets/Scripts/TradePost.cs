@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Events;
-// ensure ResourceCollector is in scope
 
 [RequireComponent(typeof(ResourceReceiver))]
 public class TradePost : MonoBehaviour
@@ -39,7 +38,6 @@ public class TradePost : MonoBehaviour
     private Coroutine _collectCoroutine;
     private float _nextStackHeight = 0f;
     private ResourceReceiver receiver;
-    // Cached receiver for convenience
 
     // Remember original ground position for drop-in
     private Vector3 _groundPosition;
@@ -67,9 +65,6 @@ public class TradePost : MonoBehaviour
         // Hide collection trigger
         if (collectionZone != null)
             collectionZone.enabled = false;
-
-        // Place in air at startup, preserving ground position
-        transform.position = _groundPosition + Vector3.up * dropHeight;
 
         receiver.onResourceReceived.AddListener(_ =>
         {
@@ -143,7 +138,7 @@ public class TradePost : MonoBehaviour
             yield return new WaitForSeconds(Random.Range(flyDelayMin, flyDelayMax));
 
             // Ask the collector for the next resource
-            var piece = collector.ProvideResource();
+            var piece = collector.ProvideResource(acceptedResource);
             if (piece == null)
                 break;
             // Ensure it’s the right type
@@ -171,7 +166,8 @@ public class TradePost : MonoBehaviour
     /// </summary>
     public GameObject ProvideResource(ResourceType type)
     {
-        // Simply pull from the underlying receiver (which only accepts this type)
+        if (type != acceptedResource)
+            return null;
         return receiver.ProvideResource();
     }
 }

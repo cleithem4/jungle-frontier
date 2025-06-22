@@ -118,7 +118,7 @@ public class MonkeyChopper : WorkerBase, Agent
             // Send each piece
             while (carrier.HeldCount > 0)
             {
-                GameObject piece = carrier.ProvideResource();
+                GameObject piece = carrier.ProvideResource(ResourceType.Wood);
                 if (piece != null)
                     resourceSender.SendTo(piece, woodStockpileReceiver.gameObject);
                 else

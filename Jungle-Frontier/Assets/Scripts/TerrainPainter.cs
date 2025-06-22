@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Terrain))]
 public class TerrainPainter : MonoBehaviour
@@ -63,6 +64,37 @@ public class TerrainPainter : MonoBehaviour
 
         // Read the current alphamaps
         float[,,] alphaMaps = _terrainData.GetAlphamaps(x0, z0, width, height);
+
+        // Remove detail prototypes (e.g., bushes) within paint radius
+        int detailWidth = _terrainData.detailWidth;
+        int detailHeight = _terrainData.detailHeight;
+        int detailRadius = Mathf.RoundToInt((paintRadius / _terrainWidth) * detailWidth);
+        int detailCenterX = Mathf.RoundToInt((terrainPos.x / _terrainWidth) * detailWidth);
+        int detailCenterZ = Mathf.RoundToInt((terrainPos.z / _terrainLength) * detailHeight);
+        int dx0 = Mathf.Clamp(detailCenterX - detailRadius, 0, detailWidth - 1);
+        int dz0 = Mathf.Clamp(detailCenterZ - detailRadius, 0, detailHeight - 1);
+        int dWidth = Mathf.Clamp(detailCenterX + detailRadius, 0, detailWidth - 1) - dx0 + 1;
+        int dHeight = Mathf.Clamp(detailCenterZ + detailRadius, 0, detailHeight - 1) - dz0 + 1;
+        for (int layer = 0; layer < _terrainData.detailPrototypes.Length; layer++)
+        {
+            int[,] detailZeros = new int[dHeight, dWidth];
+            _terrainData.SetDetailLayer(dx0, dz0, layer, detailZeros);
+        }
+
+        // Remove tree instances within paint radius
+        List<TreeInstance> trees = new List<TreeInstance>(_terrainData.treeInstances);
+        for (int i = trees.Count - 1; i >= 0; i--)
+        {
+            TreeInstance tree = trees[i];
+            Vector3 treeWorldPos = new Vector3(
+                tree.position.x * _terrainData.size.x,
+                0f,
+                tree.position.z * _terrainData.size.z
+            ) + _terrain.transform.position;
+            if ((treeWorldPos - worldPos).sqrMagnitude <= paintRadius * paintRadius)
+                trees.RemoveAt(i);
+        }
+        _terrainData.treeInstances = trees.ToArray();
 
         float elapsed = 0f;
         while (elapsed < paintDuration)
