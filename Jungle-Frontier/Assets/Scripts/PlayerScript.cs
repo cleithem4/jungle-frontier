@@ -22,6 +22,14 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     [Tooltip("Force applied to enemies when attacked.")]
     public float attackKnockbackForce = 5f;
 
+    [Header("Area Attack Settings")]
+    [Tooltip("Radius within which to auto-attack all enemies.")]
+    public float attackRadius = 2f;
+
+    [Header("Enemy Detection")]
+    [Tooltip("Which layers count as enemies for area attacks.")]
+    public LayerMask enemyLayerMask;
+
     private Dictionary<ResourceType, int> inventory = new();
 
     [Header("Carry Settings")]
@@ -78,17 +86,27 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         // Calculate speed (magnitude of movement)
         float speed = move.magnitude;
 
-        // If standing near an enemy, auto-attack it
-        if (nearEnemy != null)
+        // Only perform area attack if any enemy is within range
+        attackTimer += Time.deltaTime;
+        if (attackTimer >= chopInterval)
         {
-            attackTimer += Time.deltaTime;
-            if (attackTimer >= chopInterval)
+            // Quick check for any enemy in radius using layer mask
+            if (Physics.CheckSphere(transform.position, attackRadius, enemyLayerMask))
             {
-                Vector3 knockback = (nearEnemy.transform.position - transform.position).normalized * attackKnockbackForce;
-                var attack = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
-                nearEnemy.Damage(attack);
-                attackTimer = 0f;
+                // Fetch all colliders in range, but only those on enemy layers
+                Collider[] hits = Physics.OverlapSphere(transform.position, attackRadius, enemyLayerMask);
+                foreach (var hit in hits)
+                {
+                    var enemy = hit.GetComponent<EnemyBase>();
+                    if (enemy != null)
+                    {
+                        Vector3 knockback = (enemy.transform.position - transform.position).normalized * attackKnockbackForce;
+                        var attackData = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
+                        enemy.Damage(attackData);
+                    }
+                }
             }
+            attackTimer = 0f;
         }
 
         // If the current tree has been chopped down, stop chopping
@@ -125,11 +143,12 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
+        // Determine if any enemy is within attack range for chopping animation
+        bool enemyInRange = Physics.CheckSphere(transform.position, attackRadius, enemyLayerMask);
+
         // Override animator states directly
         PlayerAnimState newState;
-        if (nearEnemy != null)
-            newState = PlayerAnimState.Chopping;
-        else if (nearTree != null)
+        if (enemyInRange || nearTree != null)
             newState = PlayerAnimState.Chopping;
         else if (move.magnitude > 0.01f)
             newState = PlayerAnimState.Running;
@@ -157,8 +176,6 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     private Tree nearTree = null;
     private float chopTimer = 0f;
 
-    // Track nearby enemy for auto-attack
-    private EnemyBase nearEnemy = null;
     private float attackTimer = 0f;
 
     public void SetNearTree(Tree tree)
@@ -321,14 +338,6 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         {
             SetNearTree(tree);
         }
-
-        // Detect enemy proximity
-        var enemy = other.GetComponent<EnemyBase>();
-        if (enemy != null)
-        {
-            nearEnemy = enemy;
-            attackTimer = 0f;
-        }
     }
 
     // Detect when leaving a tree’s trigger zone
@@ -338,14 +347,6 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         if (tree != null)
         {
             ClearNearTree(tree);
-        }
-
-        // Clear enemy proximity
-        var enemyExit = other.GetComponent<EnemyBase>();
-        if (enemyExit != null && nearEnemy == enemyExit)
-        {
-            nearEnemy = null;
-            attackTimer = 0f;
         }
     }
 }

@@ -5,6 +5,9 @@ using System.Collections;
 [RequireComponent(typeof(ResourceReceiver))]
 public class Statue : MonoBehaviour
 {
+    // Cached colliders to enable after drop
+    private Collider[] _colliders;
+
     [Header("Statue Settings")]
     [Tooltip("Which resource type this statue accepts.")]
     public ResourceType requiredResource;
@@ -51,7 +54,13 @@ public class Statue : MonoBehaviour
     {
         // Position statue above ground initially
         groundPosition = transform.position;
-        transform.position = groundPosition + Vector3.up * dropInHeight;
+
+        // Cache and disable all colliders until drop completes
+        _colliders = GetComponentsInChildren<Collider>(true);
+        foreach (var col in _colliders)
+            col.enabled = false;
+
+        //transform.position = groundPosition + Vector3.up * dropInHeight;
 
         resourceReceiver = GetComponent<ResourceReceiver>();
         // Configure receiver
@@ -67,6 +76,9 @@ public class Statue : MonoBehaviour
     /// </summary>
     public void InitializeDropIn()
     {
+        // Position statue above ground before dropping in
+        transform.position = groundPosition + Vector3.up * dropInHeight;
+        // Begin drop-down animation
         StartCoroutine(DropInCoroutine(groundPosition));
     }
 
@@ -82,6 +94,10 @@ public class Statue : MonoBehaviour
             yield return null;
         }
         transform.position = targetPos;
+
+        // Enable collisions now that drop is complete
+        foreach (var col in _colliders)
+            col.enabled = true;
     }
 
     /// <summary>

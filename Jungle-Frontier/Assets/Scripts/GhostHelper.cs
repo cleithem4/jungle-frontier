@@ -151,6 +151,7 @@ public class GhostHelper : MonoBehaviour
     /// </summary>
     public void RestoreOriginalMaterials()
     {
+        SetOpaque();
         // Restore mesh materials
         for (int i = 0; i < _meshRenderers.Length; i++)
         {
