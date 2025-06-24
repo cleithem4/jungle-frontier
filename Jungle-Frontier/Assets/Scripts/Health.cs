@@ -53,10 +53,12 @@ public class Health : MonoBehaviour
             GameObject barGO = Instantiate(healthBarPrefab, transform);
             barGO.transform.localPosition = healthBarOffset;
             // Hide bar initially (only show when damaged)
-            barGO.SetActive(false);
+            // barGO.SetActive(false);
             _healthBar = barGO.GetComponent<HealthBar>();
             if (_healthBar != null)
                 _healthBar.Initialize(this);
+            // Now that the bar is initialized, hide it until first damage
+            barGO.SetActive(false);
             // Toggle health bar visibility on health changes
             onHealthChanged.AddListener((current, maximum) =>
             {

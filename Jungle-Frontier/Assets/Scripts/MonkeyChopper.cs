@@ -30,15 +30,6 @@ public class MonkeyChopper : WorkerBase, Agent
     public Transform Transform => transform;
     public GameObject GameObject => gameObject;
 
-    private void OnEnable()
-    {
-        CombatManager.Instance.RegisterAgent(this);
-    }
-
-    private void OnDisable()
-    {
-        CombatManager.Instance.UnregisterAgent(this);
-    }
 
     /// <summary>
     /// Finds the nearest un-chopped Tree to this monkey.
@@ -77,6 +68,21 @@ public class MonkeyChopper : WorkerBase, Agent
         carrier = GetComponent<ResourceCarrier>();
         if (carrier == null)
             Debug.LogWarning("[MonkeyChopper] No ResourceCarrier found on " + name);
+    }
+
+    protected override void Start()
+    {
+        // Start the worker loop
+        base.Start();
+        // Register with CombatManager after initialization
+        CombatManager.Instance.RegisterAgent(this);
+    }
+
+    private void OnDestroy()
+    {
+        // Unregister from CombatManager when destroyed
+        if (CombatManager.Instance != null)
+            CombatManager.Instance.UnregisterAgent(this);
     }
 
     protected override IEnumerator WorkLoop()

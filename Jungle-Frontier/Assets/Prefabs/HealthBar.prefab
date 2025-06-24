@@ -29,7 +29,7 @@ RectTransform:
   m_GameObject: {fileID: 416383369872556575}
   m_LocalRotation: {x: 0.00000003774895, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: -0.00039999757}
-  m_LocalScale: {x: 0.01, y: 0.01, z: 0.01}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 4724949273221433754}
@@ -116,6 +116,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   fillImage: {fileID: 8459269945042361437}
+  fillAnimationDuration: 0.5
   offset: {x: 0, y: 2, z: 0.5}
 --- !u!1 &3253176888549992777
 GameObject:

@@ -196,10 +196,14 @@ MonoBehaviour:
   attackRange: 2
   attackCooldown: 1
   moveSpeed: 3
-  dropPrefab: {fileID: 401565767114271303, guid: 39ba5a2149ae4457998dcba50621fa2a, type: 3}
-  dropCount: 1
+  detectionRadius: 5
+  targetLayerMask:
+    serializedVersion: 2
+    m_Bits: 640
   patrolRadius: 5
   patrolInterval: 3
+  dropPrefab: {fileID: 401565767114271303, guid: 39ba5a2149ae4457998dcba50621fa2a, type: 3}
+  dropCount: 1
   detectRadius: 8
 --- !u!65 &937454372578797948
 BoxCollider:

@@ -57,15 +57,6 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     public Transform Transform => transform;
     public GameObject GameObject => gameObject;
 
-    private void OnEnable()
-    {
-        CombatManager.Instance.RegisterAgent(this);
-    }
-
-    private void OnDisable()
-    {
-        CombatManager.Instance.UnregisterAgent(this);
-    }
 
     // Direct animation state management
     private enum PlayerAnimState { Idle, Running, Chopping }
@@ -74,6 +65,8 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     void Start()
     {
         animator = GetComponentInChildren<Animator>();
+        // Register this player with the CombatManager
+        CombatManager.Instance.RegisterAgent(this);
     }
 
     void Update()
@@ -86,24 +79,27 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         // Calculate speed (magnitude of movement)
         float speed = move.magnitude;
 
-        // Only perform area attack if any enemy is within range
+        // Area attack via CombatManager with debugging
         attackTimer += Time.deltaTime;
         if (attackTimer >= chopInterval)
         {
-            // Quick check for any enemy in radius using layer mask
-            if (Physics.CheckSphere(transform.position, attackRadius, enemyLayerMask))
+            var nearbyAgents = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
+            int found = nearbyAgents != null ? nearbyAgents.Count : 0;
+            if (found > 0)
             {
-                // Fetch all colliders in range, but only those on enemy layers
-                Collider[] hits = Physics.OverlapSphere(transform.position, attackRadius, enemyLayerMask);
-                foreach (var hit in hits)
+                foreach (var agent in nearbyAgents)
                 {
-                    var enemy = hit.GetComponent<EnemyBase>();
-                    if (enemy != null)
-                    {
-                        Vector3 knockback = (enemy.transform.position - transform.position).normalized * attackKnockbackForce;
-                        var attackData = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
-                        enemy.Damage(attackData);
-                    }
+                    // Skip null or destroyed agents
+                    if (agent == null || agent.GameObject == null)
+                        continue;
+
+                    var enemy = agent.GameObject.GetComponent<EnemyBase>();
+                    if (enemy == null)
+                        continue;
+
+                    Vector3 knockback = (enemy.transform.position - transform.position).normalized * attackKnockbackForce;
+                    var attackData = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
+                    enemy.Damage(attackData);
                 }
             }
             attackTimer = 0f;
@@ -144,7 +140,8 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         }
 
         // Determine if any enemy is within attack range for chopping animation
-        bool enemyInRange = Physics.CheckSphere(transform.position, attackRadius, enemyLayerMask);
+        var _nearbyForAnim = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
+        bool enemyInRange = _nearbyForAnim != null && _nearbyForAnim.Count > 0;
 
         // Override animator states directly
         PlayerAnimState newState;
@@ -348,5 +345,10 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         {
             ClearNearTree(tree);
         }
+    }
+    private void OnDestroy()
+    {
+        if (CombatManager.Instance != null)
+            CombatManager.Instance.UnregisterAgent(this);
     }
 }

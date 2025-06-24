@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
@@ -35,16 +36,6 @@ public class EnemyBase : MonoBehaviour, Agent
     public Transform Transform => transform;
     public GameObject GameObject => gameObject;
 
-    private void OnEnable()
-    {
-        CombatManager.Instance.RegisterAgent(this);
-    }
-
-    private void OnDisable()
-    {
-        CombatManager.Instance.UnregisterAgent(this);
-    }
-
     [Header("Stats")]
     [Tooltip("Maximum health for this enemy.")]
     public float maxHealth = 10f;
@@ -60,6 +51,22 @@ public class EnemyBase : MonoBehaviour, Agent
     public float moveSpeed = 3.5f;
     protected NavMeshAgent agent;
     protected Transform target;
+
+    [Header("Targeting Settings")]
+    [Tooltip("Radius within which the enemy will detect new targets.")]
+    public float detectionRadius = 5f;
+    [Tooltip("Layer mask used to filter potential targets (e.g., Agent_Player, Agent_Friendly).")]
+    public LayerMask targetLayerMask;
+
+    [Header("Patrol Settings")]
+    [Tooltip("Radius around the start position to patrol.")]
+    public float patrolRadius = 5f;
+    [Tooltip("Time in seconds between selecting a new patrol point.")]
+    public float patrolInterval = 3f;
+
+    private Vector3 homePosition;
+    private Vector3 patrolTarget;
+    private float lastPatrolTime;
 
     [Header("Drops")]
     [Tooltip("Prefab to spawn when this enemy dies.")]
@@ -91,21 +98,57 @@ public class EnemyBase : MonoBehaviour, Agent
             for (int j = 0; j < mats.Length; j++)
                 originalColors[i][j] = mats[j].color;
         }
+
+        // Initialize patrolling
+        homePosition = transform.position;
+        ChooseNewPatrolTarget();
+        lastPatrolTime = Time.time;
+    }
+
+    void Start()
+    {
+        // Register with CombatManager once the singleton is initialized
+        CombatManager.Instance.RegisterAgent(this);
     }
 
     protected virtual void Update()
     {
-        if (target == null) return;
-
-        float dist = Vector3.Distance(transform.position, target.position);
-        if (dist <= attackRange)
+        // Acquire a new target if none is set
+        if (target == null)
         {
-            TryAttack();
+            var nearbyAgents = CombatManager.Instance.QueryNearby(this, detectionRadius, targetLayerMask);
+            if (nearbyAgents != null && nearbyAgents.Count > 0)
+            {
+                // Pick the closest agent
+                var nearest = nearbyAgents
+                    .OrderBy(a => (a.Transform.position - transform.position).sqrMagnitude)
+                    .First();
+                SetTarget(nearest.Transform);
+            }
+        }
+        if (target == null)
+        {
+            // Patrol behavior
+            if (Time.time >= lastPatrolTime + patrolInterval ||
+                Vector3.Distance(transform.position, patrolTarget) < 1f)
+            {
+                ChooseNewPatrolTarget();
+                lastPatrolTime = Time.time;
+            }
+            agent.isStopped = false;
+            agent.SetDestination(patrolTarget);
         }
         else
         {
-            agent.isStopped = false;
-            agent.SetDestination(target.position);
+            // Chase or attack
+            float dist = Vector3.Distance(transform.position, target.position);
+            if (dist <= attackRange)
+                TryAttack();
+            else
+            {
+                agent.isStopped = false;
+                agent.SetDestination(target.position);
+            }
         }
     }
 
@@ -150,8 +193,7 @@ public class EnemyBase : MonoBehaviour, Agent
     public virtual void Damage(AttackData atk)
     {
         float healthBefore = currentHealth;
-        if (atk.source is ResourceCollector rc)
-            lastHarvester = rc;
+        lastHarvester = atk.source as ResourceCollector;
         currentHealth -= atk.damage;
         // Apply knockback from AttackData
         if (atk.knockbackForce != Vector3.zero && TryGetComponent<Rigidbody>(out var rb))
@@ -264,5 +306,21 @@ public class EnemyBase : MonoBehaviour, Agent
             agent.isStopped = false;
             agent.ResetPath();
         }
+    }
+
+    /// <summary>
+    /// Chooses a random point within patrolRadius around homePosition.
+    /// </summary>
+    private void ChooseNewPatrolTarget()
+    {
+        Vector2 circle = Random.insideUnitCircle * patrolRadius;
+        patrolTarget = homePosition + new Vector3(circle.x, 0f, circle.y);
+    }
+
+    void OnDestroy()
+    {
+        // Unregister when this enemy is destroyed
+        if (CombatManager.Instance != null)
+            CombatManager.Instance.UnregisterAgent(this);
     }
 }

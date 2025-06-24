@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq; // For potential debug list printing
 
 /// <summary>
 /// Manages spatial bucketing of Agents for efficient proximity queries.
@@ -44,7 +45,9 @@ public class CombatManager : MonoBehaviour
             grid[coord] = list;
         }
         if (!list.Contains(agent))
+        {
             list.Add(agent);
+        }
     }
 
     /// <summary>
@@ -54,7 +57,9 @@ public class CombatManager : MonoBehaviour
     {
         var coord = GetCellCoord(agent.Transform.position);
         if (grid.TryGetValue(coord, out var list))
+        {
             list.Remove(agent);
+        }
     }
 
     /// <summary>
@@ -62,9 +67,19 @@ public class CombatManager : MonoBehaviour
     /// </summary>
     public List<Agent> QueryNearby(Agent agent, float radius, LayerMask layerMask)
     {
-        var result = new List<Agent>();
+        // Purge any destroyed or unloaded agents from the internal grid
+        foreach (var cellList in grid.Values)
+            cellList.RemoveAll(a =>
+            {
+                // Purge any destroyed or unloaded agents
+                var obj = a as UnityEngine.Object;
+                return obj == null;
+            });
+
         var centre = GetCellCoord(agent.Transform.position);
         int range = Mathf.CeilToInt(radius / cellSize);
+
+        var result = new List<Agent>();
 
         float rsq = radius * radius;
         for (int dx = -range; dx <= range; dx++)
@@ -83,6 +98,15 @@ public class CombatManager : MonoBehaviour
                         result.Add(other);
                 }
             }
+
+        // Purge any destroyed or unloaded agents from the result list
+        result.RemoveAll(a =>
+        {
+            // Purge any destroyed or unloaded agents
+            var obj = a as UnityEngine.Object;
+            return obj == null;
+        });
+
         return result;
     }
 }

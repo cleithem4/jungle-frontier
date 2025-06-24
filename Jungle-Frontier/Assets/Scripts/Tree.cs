@@ -49,7 +49,6 @@ public class Tree : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        Debug.Log($"[Tree] OnTriggerEnter with {other.gameObject.name}. IsChopped: {isChopped}");
         if (!isChopped)
         {
             var collector = other.GetComponent<ResourceCollector>();
@@ -65,9 +64,7 @@ public class Tree : MonoBehaviour
 
     public void ChopTree()
     {
-        Debug.Log($"[Tree] ChopTree() invoked. LastHarvester: {lastHarvester}");
         isChopped = true;
-        Debug.Log("Tree chopped!");
 
         // Spawn 5 wood pieces with random force
         for (int i = 0; i < 5; i++)
@@ -106,12 +103,10 @@ public class Tree : MonoBehaviour
         lastHarvester = atk.source as ResourceCollector;
         float amount = atk.damage;
 
-        Debug.Log($"[Tree] Damage called. Amount: {amount}, CurrentHealth before: {currentHealth}");
         if (isChopped) return;
 
         // Reduce health and trigger shake if available
         currentHealth -= amount;
-        Debug.Log($"[Tree] CurrentHealth after: {currentHealth}");
         var shaker = GetComponent<TreeShaker>();
         if (shaker != null)
             shaker.Shake();
@@ -124,7 +119,6 @@ public class Tree : MonoBehaviour
 
     private void SetTreeActive(bool on)
     {
-        Debug.Log($"[Tree] SetTreeActive({on}) called.");
         foreach (var r in _renderers) r.enabled = on;
         foreach (var c in _colliders) c.enabled = on;
         transform.localScale = on ? _initialScale : Vector3.zero;
