@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
@@ -19,10 +20,12 @@ public abstract class WorkerBase : MonoBehaviour
 
         // Configure the receiver to match this worker's capacity
         receiver.maxCapacity = capacity;
+        Debug.Log($"[WorkerBase] Awake on {gameObject.name}: capacity={capacity}");
     }
 
     protected virtual void Start()
     {
+        Debug.Log($"[WorkerBase] Starting WorkLoop on {gameObject.name}");
         // Begin the worker's main loop
         StartCoroutine(WorkLoop());
     }
@@ -33,6 +36,7 @@ public abstract class WorkerBase : MonoBehaviour
     protected IEnumerator MoveTo(Vector3 destination, float stoppingDistance = 0.1f)
     {
         agent.isStopped = false;
+        Debug.Log($"[WorkerBase] MoveTo: {gameObject.name} -> {destination} (stoppingDistance={stoppingDistance})");
         agent.SetDestination(destination);
         // Wait until path is computed
         while (agent.pathPending)
@@ -40,6 +44,28 @@ public abstract class WorkerBase : MonoBehaviour
         // Travel until within stopping distance
         while (agent.remainingDistance > stoppingDistance)
             yield return null;
+        agent.isStopped = true;
+        Debug.Log($"[WorkerBase] Arrived: {gameObject.name} at {destination}");
+    }
+
+    /// <summary>
+    /// Moves the agent dynamically towards a changing target position,
+    /// updating each frame until within stoppingDistance.
+    /// </summary>
+    protected IEnumerator MoveToDynamic(Func<Vector3> getDestination, float stoppingDistance = 1f)
+    {
+        agent.isStopped = false;
+        // Continuously update destination until we arrive
+        while (Vector3.Distance(transform.position, getDestination()) > stoppingDistance)
+        {
+            Vector3 dest = getDestination();
+            agent.SetDestination(dest);
+            // Wait until path is computed (if needed)
+            while (agent.pathPending)
+                yield return null;
+            // Step one frame
+            yield return null;
+        }
         agent.isStopped = true;
     }
 

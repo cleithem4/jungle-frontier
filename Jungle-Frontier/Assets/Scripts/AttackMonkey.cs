@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.AI;
 
 [RequireComponent(typeof(ResourceCarrier), typeof(ResourceSender))]
 [RequireComponent(typeof(Collider))]
@@ -39,6 +38,9 @@ public class AttackMonkey : WorkerBase, Agent
     private ResourceCarrier _carrier;
     private ResourceSender _sender;
 
+    // Holds the target for the upcoming attack event
+    private Agent _attackEventTarget;
+
     private float _attackTimer;
 
     [Header("Movement Settings")]
@@ -48,9 +50,16 @@ public class AttackMonkey : WorkerBase, Agent
     public float acceleration = 8f;
     [Tooltip("Turn speed when facing the target.")]
     public float turnSpeed = 5f;
+    [Tooltip("Stopping distance while chasing.")]
+    public float chaseStoppingDistance = 2f;
 
-    private NavMeshAgent _agent;
     private bool _isAttacking = false;
+
+    // REMEMBER last known enemy position to return after depositing
+    private Vector3 _lastEnemyPosition;
+
+    // Tracks whether we've deposited during idle (no enemies) to avoid repeated deposits
+    private bool _depositedIdle = false;
 
     // Agent interface implementation
     public UnityEngine.Transform Transform => this.transform;
@@ -62,11 +71,7 @@ public class AttackMonkey : WorkerBase, Agent
         _anim = GetComponent<Animator>();
         _carrier = GetComponent<ResourceCarrier>();
         _sender = GetComponent<ResourceSender>();
-        _agent = GetComponent<NavMeshAgent>();
-        _agent.speed = runSpeed;
-        _agent.acceleration = acceleration;
-        _agent.stoppingDistance = attackRadius;
-        _agent.autoBraking = true;
+
     }
 
     protected override void Start()
@@ -87,19 +92,27 @@ public class AttackMonkey : WorkerBase, Agent
     /// </summary>
     private IEnumerator AttackRoutine(Agent nearestAgent)
     {
+        // Temporarily use attack range for approaching target
+        float originalStop = agent.stoppingDistance;
+        agent.stoppingDistance = attackRadius;
+
         if (nearestAgent == null || nearestAgent.GameObject == null)
             yield break;
 
-        // Approach target using NavMeshAgent
-        _agent.SetDestination(nearestAgent.Transform.position);
-        while (_agent.pathPending || _agent.remainingDistance > _agent.stoppingDistance)
-            yield return null;
+        // Cache the target for the animation event
+        _attackEventTarget = nearestAgent;
+
+        // Approach target dynamically to attack range
+        yield return MoveToDynamic(() => nearestAgent.Transform.position, attackRadius);
 
         // Face the enemy
         Vector3 toEnemy = nearestAgent.Transform.position - transform.position;
         toEnemy.y = 0f;
         if (toEnemy.sqrMagnitude > 0.001f)
             transform.rotation = Quaternion.LookRotation(toEnemy.normalized);
+
+        // Restore chase stopping distance
+        agent.stoppingDistance = originalStop;
 
         // Play attack animation and wait for it to finish
         if (_anim != null)
@@ -108,33 +121,79 @@ public class AttackMonkey : WorkerBase, Agent
             yield return new WaitForSeconds(attackAnimDuration);
         }
 
-        // Now apply damage
-        var enemy = nearestAgent.GameObject.GetComponent<EnemyBase>();
-        if (enemy != null)
-        {
-            var knockback = toEnemy.normalized * knockbackForce;
-            var attackData = new AttackData(attackDamage, this, "monkey_attack", knockback, 0.2f);
-            enemy.Damage(attackData);
-
-            // Loot logic
-
-            bool noEnemiesNearby = CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask)?.Count == 0;
-            if (_carrier.IsFull || noEnemiesNearby)
-            { }
-        }
+        // Clear the cached target after attack
+        _attackEventTarget = null;
     }
 
     protected override IEnumerator WorkLoop()
     {
         while (true)
         {
+            // Reset idle-deposit flag when enemies reappear
+            if (CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask)?.Count > 0)
+            {
+                if (_depositedIdle)
+                {
+                    _depositedIdle = false;
+                }
+            }
+
+            // Gather targets within scan and attack radii
+            List<Agent> scanTargets = CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask);
+            bool scanNearby = scanTargets != null && scanTargets.Count > 0;
+
+            List<Agent> attackTargets = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
+            bool canAttack = attackTargets != null && attackTargets.Count > 0;
+
+            // Track last enemy position when one is in scan range
+            if (scanNearby && scanTargets.Count > 0)
+                _lastEnemyPosition = scanTargets[0].Transform.position;
+
+            // Deposit if full, or if idle (no enemies) and not yet deposited this idle period
+            bool noEnemies = !CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask)?.Any() ?? true;
+            if (_carrier != null && _carrier.HeldCount > 0 && (_carrier.IsFull || (noEnemies && !_depositedIdle)) && lootReceiver != null && _sender != null)
+            {
+                // Temporarily tighten stopping distance so MoveTo can complete
+                float originalStop = agent.stoppingDistance;
+                agent.stoppingDistance = 0.1f;
+                // Move to stockpile
+                yield return MoveTo(lootReceiver.stackPoint.position, 0.1f);
+                // Restore original stopping distance
+                agent.stoppingDistance = originalStop;
+
+                // Deposit all held loot pieces until none remain
+                GameObject piece;
+                while ((piece = _carrier.ProvideResource(lootResourceType)) != null)
+                {
+                    _sender.SendTo(piece, lootReceiver.gameObject);
+                    yield return new WaitForSeconds(0.1f);
+                }
+                _depositedIdle = noEnemies;
+
+                // After depositing, play idle animation
+                if (_anim != null)
+                    _anim.Play("Idle");
+
+                // After depositing, return to last known enemy position to resume chase
+                if (_lastEnemyPosition != default(Vector3))
+                {
+                    // Restore stopping distance in case it changed
+                    agent.stoppingDistance = originalStop;
+                    yield return MoveToDynamic(() => _lastEnemyPosition, chaseStoppingDistance);
+                }
+
+                // Restart loop
+                yield return null;
+                continue;
+            }
+
+
             // Smoothly face nearest target if attacking or chasing
             if (!_isAttacking)
             {
-                List<Agent> rotateList = CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask);
-                if (rotateList != null && rotateList.Count > 0)
+                if (scanNearby)
                 {
-                    Vector3 dir = (rotateList[0].Transform.position - transform.position);
+                    Vector3 dir = (scanTargets[0].Transform.position - transform.position);
                     dir.y = 0f;
                     if (dir.sqrMagnitude > 0.01f)
                     {
@@ -144,60 +203,31 @@ public class AttackMonkey : WorkerBase, Agent
                 }
             }
 
-            // Update animator speed parameter if using blend tree
-            if (_anim != null)
-                _anim.SetFloat("Speed", _agent.velocity.magnitude);
+
 
             _attackTimer += Time.deltaTime;
 
-            // Check for any enemy nearby via CombatManager
-            List<Agent> nearbyEnemies = CombatManager.Instance.QueryNearby(this, scanRadius, enemyLayerMask);
-            bool enemyNearby = nearbyEnemies != null && nearbyEnemies.Count > 0;
-
-            // Deposit resources if carrier is full or no enemies nearby
-            if ((_carrier != null && (_carrier.IsFull || !enemyNearby)) && _carrier.HeldCount > 0 && lootReceiver != null && _sender != null)
+            // Chase the nearest enemy when not attacking using WorkerBase.MoveToDynamic
+            if (scanNearby && !_isAttacking)
             {
-                // Move to stockpile
-                yield return MoveTo(lootReceiver.stackPoint.position, 1f);
-
-                // Deposit all held loot pieces
-                while (_carrier.HeldCount > 0)
+                Agent chaseTarget = scanTargets
+                    .OrderBy(a => (a.Transform.position - transform.position).sqrMagnitude)
+                    .FirstOrDefault();
+                if (chaseTarget != null)
                 {
-                    GameObject piece = _carrier.ProvideResource(lootResourceType);
-                    if (piece != null)
-                        _sender.SendTo(piece, lootReceiver.gameObject);
-                    yield return new WaitForSeconds(0.1f);
+                    // Move to within chaseStoppingDistance of the target
+                    yield return MoveToDynamic(() => chaseTarget.Transform.position, chaseStoppingDistance);
                 }
-
-                // After depositing, play idle animation
-                if (_anim != null)
-                    _anim.Play("Idle");
-
-                // Restart loop
-                yield return null;
-                continue;
             }
 
-            // Only update run/idle when not mid-attack
-            if (!_isAttacking && _anim != null)
-            {
-                // Play Run when actually moving
-                if (_agent.velocity.magnitude > 0.1f)
-                    _anim.Play("Run");
-                else
-                    _anim.Play("Idle");
-            }
-
-            // Attempt attack if enemy is in range, not already attacking, and cooldown elapsed
-            if (!_isAttacking && enemyNearby && _attackTimer >= attackInterval)
+            // Attempt attack if target within attack radius, not already attacking, and cooldown elapsed
+            if (!_isAttacking && canAttack && _attackTimer >= attackInterval)
             {
                 _isAttacking = true;
                 _attackTimer = 0f;
-                if (_anim != null)
-                    _anim.Play("Chop");
 
-                // Find nearest agent
-                Agent nearestAgent = nearbyEnemies
+                // Find nearest agent within attack range
+                Agent nearestAgent = attackTargets
                     .OrderBy(a => (a.Transform.position - transform.position).sqrMagnitude)
                     .FirstOrDefault();
 
@@ -212,9 +242,42 @@ public class AttackMonkey : WorkerBase, Agent
         }
     }
 
+    void Update()
+    {
+        if (!_isAttacking && _anim != null)
+        {
+            // Play Run when actually moving, otherwise Idle
+            if (agent.velocity.sqrMagnitude > 0.01f)
+                _anim.Play("Run");
+            else
+                _anim.Play("Idle");
+        }
+    }
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.magenta;
         Gizmos.DrawWireSphere(transform.position, attackRadius);
+    }
+
+    /// <summary>
+    /// Called via Animation Event at the hit frame of the Chop animation.
+    /// Applies damage and loot logic precisely when the animation lands.
+    /// </summary>
+    public void OnAttackHit()
+    {
+        if (_attackEventTarget == null) return;
+
+        // Apply damage
+        var enemy = _attackEventTarget.GameObject.GetComponent<EnemyBase>();
+        if (enemy != null)
+        {
+            Vector3 dir = (_attackEventTarget.Transform.position - transform.position).normalized;
+            Vector3 knockback = dir * knockbackForce;
+            var attackData = new AttackData(attackDamage, _carrier, "monkey_attack", knockback, 0.2f);
+            enemy.Damage(attackData);
+
+
+        }
     }
 }

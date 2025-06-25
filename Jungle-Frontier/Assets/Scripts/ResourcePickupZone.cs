@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -18,6 +19,9 @@ public class ResourcePickupZone : MonoBehaviour
     [Tooltip("Duration of the fly-to-player animation.")]
     public float pickupDuration = 0.5f;
 
+    // Only one pickup coroutine at a time
+    private bool _isPickingUp = false;
+
     void Awake()
     {
         // Ensure this collider is a trigger
@@ -27,22 +31,41 @@ public class ResourcePickupZone : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
+        if (_isPickingUp)
+            return;
+        _isPickingUp = true;
+
         // Only trigger when the player enters the zone
         if (other.GetComponent<PlayerScript>() == null)
             return;
 
-        // Use the ResourceReceiver stackPoint to find all stacked resources
         var receiver = GetComponent<ResourceReceiver>();
         if (receiver == null || receiver.stackPoint == null)
             return;
 
-        // Copy children to avoid modifying collection during iteration
+        // Gather current items
         var items = new List<Transform>();
         foreach (Transform t in receiver.stackPoint)
             items.Add(t);
 
+        // Start coroutine to pick them up with delay
+        StartCoroutine(PickupRoutine(items, receiver));
+    }
+
+    private IEnumerator PickupRoutine(List<Transform> items, ResourceReceiver receiver)
+    {
+        // Get the player's carrier to check capacity
+        var carrier = player.GetComponent<ResourceCarrier>();
+
+        int slotsLeft = carrier != null
+            ? (carrier.Capacity - carrier.HeldCount)
+            : int.MaxValue;
+
         foreach (var t in items)
         {
+            if (slotsLeft <= 0)
+                break;
+
             var resBehavior = t.GetComponent<ResourceBehavior>();
             if (resBehavior == null)
                 continue;
@@ -54,13 +77,19 @@ public class ResourcePickupZone : MonoBehaviour
             // Detach this resource from the zone’s stack
             t.SetParent(null, worldPositionStays: true);
             receiver.currentCollected = Mathf.Max(0, receiver.currentCollected - 1);
+
+            // Stop early if now full
+            if (carrier != null && carrier.IsFull)
+                break;
+
             // Fly this resource to the player’s back via ResourceBehavior
             resBehavior.Pickup(player, pickupDuration);
+
+            slotsLeft--;
+
+            // Wait before next pickup
+            yield return new WaitForSeconds(0.05f);
         }
-    }
-    void OnTriggerStay(Collider other)
-    {
-        // Continuously pick up crystals while the player remains in the zone
-        OnTriggerEnter(other);
+        _isPickingUp = false;
     }
 }

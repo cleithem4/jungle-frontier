@@ -13,6 +13,11 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     private Animator animator;
 
     [Header("Chopping Settings")]
+    [Header("Vertical Clamp Settings")]
+    [Tooltip("Minimum Y position the player can have.")]
+    public float minY = 0f;
+    [Tooltip("Maximum Y position the player can have.")]
+    public float maxY = 10f;
     [Tooltip("Damage dealt to a tree per chop hit.")]
     public float chopDamage = 1f;
     [Tooltip("Time interval (in seconds) between each chop hit.")]
@@ -138,6 +143,11 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
             Quaternion targetRotation = Quaternion.LookRotation(move, Vector3.up);
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
+
+        // Clamp vertical position
+        Vector3 clampedPos = transform.position;
+        clampedPos.y = Mathf.Clamp(clampedPos.y, minY, maxY);
+        transform.position = clampedPos;
 
         // Determine if any enemy is within attack range for chopping animation
         var _nearbyForAnim = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
