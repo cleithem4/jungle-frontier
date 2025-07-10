@@ -19,6 +19,10 @@ public class ResourcePickupZone : MonoBehaviour
     [Tooltip("Duration of the fly-to-player animation.")]
     public float pickupDuration = 0.5f;
 
+    // Pickup zone mode: player-triggered or resource-triggered
+    public enum PickupZoneMode { PlayerTriggered, ResourceTriggered }
+    public PickupZoneMode pickupMode = PickupZoneMode.PlayerTriggered;
+
     // Only one pickup coroutine at a time
     private bool _isPickingUp = false;
 
@@ -31,25 +35,58 @@ public class ResourcePickupZone : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        if (_isPickingUp)
-            return;
-        _isPickingUp = true;
+        if (pickupMode == PickupZoneMode.PlayerTriggered)
+        {
+            Debug.Log($"[ResourcePickupZone] OnTriggerEnter by {other.name}. _isPickingUp={_isPickingUp}");
+            if (_isPickingUp)
+            {
+                Debug.Log("[ResourcePickupZone] Already picking up, ignoring trigger.");
+                return;
+            }
+            _isPickingUp = true;
 
-        // Only trigger when the player enters the zone
-        if (other.GetComponent<PlayerScript>() == null)
-            return;
+            if (other.GetComponent<PlayerScript>() == null)
+            {
+                Debug.Log("[ResourcePickupZone] Trigger ignored: not player.");
+                _isPickingUp = false;
+                return;
+            }
 
-        var receiver = GetComponent<ResourceReceiver>();
-        if (receiver == null || receiver.stackPoint == null)
-            return;
+            var receiver = GetComponent<ResourceReceiver>();
+            if (receiver == null || receiver.stackPoint == null)
+            {
+                Debug.LogWarning("[ResourcePickupZone] No ResourceReceiver or stackPoint found.");
+                _isPickingUp = false;
+                return;
+            }
 
-        // Gather current items
-        var items = new List<Transform>();
-        foreach (Transform t in receiver.stackPoint)
-            items.Add(t);
+            var items = new List<Transform>();
+            foreach (Transform t in receiver.stackPoint)
+                items.Add(t);
+            items.Reverse();
 
-        // Start coroutine to pick them up with delay
-        StartCoroutine(PickupRoutine(items, receiver));
+            Debug.Log($"[ResourcePickupZone] Starting pickup routine. Items in stack: {receiver.stackPoint.childCount}");
+            StartCoroutine(PickupRoutine(items, receiver));
+        }
+        else if (pickupMode == PickupZoneMode.ResourceTriggered)
+        {
+            var resBehavior = other.GetComponent<ResourceBehavior>();
+            if (resBehavior == null)
+            {
+                Debug.Log("[ResourcePickupZone] Trigger ignored: not resource.");
+                return;
+            }
+
+            var resData = resBehavior.GetComponent<Resource>();
+            if (resData == null || (acceptedTypes != null && !acceptedTypes.Contains(resData.resourceType)))
+            {
+                Debug.Log($"[ResourcePickupZone] Ignored resource {other.name}: invalid type.");
+                return;
+            }
+
+            Debug.Log($"[ResourcePickupZone] Picking up {other.name} via trigger.");
+            resBehavior.DepositTo(gameObject);
+        }
     }
 
     private IEnumerator PickupRoutine(List<Transform> items, ResourceReceiver receiver)
@@ -63,6 +100,7 @@ public class ResourcePickupZone : MonoBehaviour
 
         foreach (var t in items)
         {
+            Debug.Log($"[ResourcePickupZone] Processing item {t.name}");
             if (slotsLeft <= 0)
                 break;
 
@@ -72,11 +110,16 @@ public class ResourcePickupZone : MonoBehaviour
 
             var resData = resBehavior.GetComponent<Resource>();
             if (acceptedTypes != null && !acceptedTypes.Contains(resData.resourceType))
+            {
+                Debug.Log($"[ResourcePickupZone] Skipped {t.name}: unacceptable resource type.");
                 continue;
+            }
 
             // Detach this resource from the zone’s stack
             t.SetParent(null, worldPositionStays: true);
             receiver.currentCollected = Mathf.Max(0, receiver.currentCollected - 1);
+
+            Debug.Log($"[ResourcePickupZone] Picking up {t.name}");
 
             // Stop early if now full
             if (carrier != null && carrier.IsFull)
@@ -90,6 +133,7 @@ public class ResourcePickupZone : MonoBehaviour
             // Wait before next pickup
             yield return new WaitForSeconds(0.05f);
         }
+        Debug.Log("[ResourcePickupZone] Pickup routine complete.");
         _isPickingUp = false;
     }
 }

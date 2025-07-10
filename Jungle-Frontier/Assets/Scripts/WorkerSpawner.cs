@@ -36,6 +36,14 @@ public class WorkerSpawner : MonoBehaviour
         {
             chopper.woodStockpileReceiver = resourceStackReceiver;
         }
+
+        // If the spawned monkey has an AttackMonkey component, set its stone pile receiver
+        var attacker = instance.GetComponent<AttackMonkey>();
+        if (attacker != null && resourceStackReceiver != null)
+        {
+            attacker.lootReceiver = resourceStackReceiver;
+        }
+
     }
 
 

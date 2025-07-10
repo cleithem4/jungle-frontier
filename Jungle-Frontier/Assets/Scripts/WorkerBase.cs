@@ -20,12 +20,10 @@ public abstract class WorkerBase : MonoBehaviour
 
         // Configure the receiver to match this worker's capacity
         receiver.maxCapacity = capacity;
-        Debug.Log($"[WorkerBase] Awake on {gameObject.name}: capacity={capacity}");
     }
 
     protected virtual void Start()
     {
-        Debug.Log($"[WorkerBase] Starting WorkLoop on {gameObject.name}");
         // Begin the worker's main loop
         StartCoroutine(WorkLoop());
     }
@@ -36,7 +34,6 @@ public abstract class WorkerBase : MonoBehaviour
     protected IEnumerator MoveTo(Vector3 destination, float stoppingDistance = 0.1f)
     {
         agent.isStopped = false;
-        Debug.Log($"[WorkerBase] MoveTo: {gameObject.name} -> {destination} (stoppingDistance={stoppingDistance})");
         agent.SetDestination(destination);
         // Wait until path is computed
         while (agent.pathPending)
@@ -45,7 +42,6 @@ public abstract class WorkerBase : MonoBehaviour
         while (agent.remainingDistance > stoppingDistance)
             yield return null;
         agent.isStopped = true;
-        Debug.Log($"[WorkerBase] Arrived: {gameObject.name} at {destination}");
     }
 
     /// <summary>

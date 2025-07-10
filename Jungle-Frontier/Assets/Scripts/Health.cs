@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.UI;
 
 /// <summary>
 /// Generic health component that can be added to any character (player, worker, enemy, etc.).
@@ -44,6 +45,7 @@ public class Health : MonoBehaviour
     public Vector3 healthBarOffset = new Vector3(0f, 2f, 0f);
 
     private HealthBar _healthBar;
+    private CanvasGroup _barGroup;
 
     void Start()
     {
@@ -52,18 +54,20 @@ public class Health : MonoBehaviour
             // Instantiate as child so it follows the entity automatically
             GameObject barGO = Instantiate(healthBarPrefab, transform);
             barGO.transform.localPosition = healthBarOffset;
-            // Hide bar initially (only show when damaged)
-            // barGO.SetActive(false);
             _healthBar = barGO.GetComponent<HealthBar>();
             if (_healthBar != null)
                 _healthBar.Initialize(this);
-            // Now that the bar is initialized, hide it until first damage
-            barGO.SetActive(false);
+            // Ensure we have a CanvasGroup to control visibility without deactivating
+            _barGroup = barGO.GetComponent<CanvasGroup>();
+            if (_barGroup == null)
+                _barGroup = barGO.AddComponent<CanvasGroup>();
+            // Hide visuals initially until first damage
+            _barGroup.alpha = 0f;
             // Toggle health bar visibility on health changes
             onHealthChanged.AddListener((current, maximum) =>
             {
-                if (_healthBar != null)
-                    _healthBar.gameObject.SetActive(current < maximum);
+                if (_healthBar != null && _barGroup != null)
+                    _barGroup.alpha = (current < maximum) ? 1f : 0f;
             });
         }
     }

@@ -15,6 +15,9 @@ public class StackingLayout : MonoBehaviour
     [Tooltip("Transform under which incoming resources are parented.")]
     public Transform stackPoint;
 
+    [Tooltip("Local Euler angles to rotate each stacked item.")]
+    public Vector3 itemRotation = Vector3.zero;
+
     private ResourceReceiver receiver;
 
     void Awake()
@@ -44,6 +47,8 @@ public class StackingLayout : MonoBehaviour
         {
             // Ensure correct visible size regardless of parent scaling
             items[i].localPosition = GetLocalPosition(i);
+            // Apply uniform rotation to each item
+            items[i].localRotation = Quaternion.Euler(itemRotation);
         }
     }
 }

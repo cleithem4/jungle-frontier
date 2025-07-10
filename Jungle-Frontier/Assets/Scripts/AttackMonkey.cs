@@ -31,7 +31,7 @@ public class AttackMonkey : WorkerBase, Agent
     [Tooltip("Type of resource the monkey collects from defeated enemies.")]
     [SerializeField] private ResourceType lootResourceType;
     [Tooltip("Receiver to deliver collected loot.")]
-    [SerializeField] private ResourceReceiver lootReceiver;
+    [SerializeField] public ResourceReceiver lootReceiver;
 
     private Animator _anim;
 

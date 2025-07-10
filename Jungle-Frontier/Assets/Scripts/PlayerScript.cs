@@ -70,6 +70,8 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
     void Start()
     {
         animator = GetComponentInChildren<Animator>();
+        // Disable root motion so animations don’t tilt the character over
+        animator.applyRootMotion = false;
         // Register this player with the CombatManager
         CombatManager.Instance.RegisterAgent(this);
     }
@@ -84,54 +86,19 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         // Calculate speed (magnitude of movement)
         float speed = move.magnitude;
 
-        // Area attack via CombatManager with debugging
-        attackTimer += Time.deltaTime;
-        if (attackTimer >= chopInterval)
-        {
-            var nearbyAgents = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
-            int found = nearbyAgents != null ? nearbyAgents.Count : 0;
-            if (found > 0)
-            {
-                foreach (var agent in nearbyAgents)
-                {
-                    // Skip null or destroyed agents
-                    if (agent == null || agent.GameObject == null)
-                        continue;
-
-                    var enemy = agent.GameObject.GetComponent<EnemyBase>();
-                    if (enemy == null)
-                        continue;
-
-                    Vector3 knockback = (enemy.transform.position - transform.position).normalized * attackKnockbackForce;
-                    var attackData = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
-                    enemy.Damage(attackData);
-                }
-            }
-            attackTimer = 0f;
-        }
-
         // If the current tree has been chopped down, stop chopping
         if (nearTree != null && nearTree.isChopped)
         {
             nearTree = null;
-            chopTimer = 0f;
         }
 
         if (nearTree != null)
         {
-            chopTimer += Time.deltaTime;
-            if (chopTimer >= chopInterval)
-            {
-                Vector3 knockback = (nearTree.transform.position - transform.position).normalized * attackKnockbackForce;
-                var attack = new AttackData(chopDamage, this, "chop");
-                nearTree.Damage(attack);
-                chopTimer = 0f;
-            }
+            // Removed chopTimer accumulation and chopInterval check as per instructions
         }
         else
         {
             // Not near a tree: reset timer
-            chopTimer = 0f;
         }
 
         if (move.magnitude > 0.01f) // only move/rotate if input is significant
@@ -148,6 +115,10 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         Vector3 clampedPos = transform.position;
         clampedPos.y = Mathf.Clamp(clampedPos.y, minY, maxY);
         transform.position = clampedPos;
+
+        // Prevent any rotation on X or Z axes (keep upright)
+        Vector3 e = transform.eulerAngles;
+        transform.eulerAngles = new Vector3(0f, e.y, 0f);
 
         // Determine if any enemy is within attack range for chopping animation
         var _nearbyForAnim = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
@@ -180,15 +151,40 @@ public class PlayerScript : MonoBehaviour, ResourceCollector, Agent
         }
     }
 
-    private Tree nearTree = null;
-    private float chopTimer = 0f;
+    /// <summary>
+    /// Called by animation event to handle both chopping trees and attacking enemies.
+    /// </summary>
+    public void OnHit()
+    {
+        // First, attempt to chop a tree if in range
+        if (nearTree != null && !nearTree.isChopped)
+        {
+            Vector3 knockback = (nearTree.transform.position - transform.position).normalized * attackKnockbackForce;
+            var treeAttack = new AttackData(chopDamage, this, "chop", knockback, 0.2f);
+            nearTree.Damage(treeAttack);
+        }
 
-    private float attackTimer = 0f;
+        // Then, attack any nearby enemies
+        var nearbyAgents = CombatManager.Instance.QueryNearby(this, attackRadius, enemyLayerMask);
+        if (nearbyAgents != null)
+        {
+            foreach (var agent in nearbyAgents)
+            {
+                if (agent?.GameObject == null) continue;
+                var enemy = agent.GameObject.GetComponent<EnemyBase>();
+                if (enemy == null) continue;
+                Vector3 knock = (enemy.transform.position - transform.position).normalized * attackKnockbackForce;
+                var enemyAttack = new AttackData(chopDamage, this, "chop", knock, 0.2f);
+                enemy.Damage(enemyAttack);
+            }
+        }
+    }
+
+    private Tree nearTree = null;
 
     public void SetNearTree(Tree tree)
     {
         nearTree = tree;
-        chopTimer = 0f;
     }
 
     public void ClearNearTree(Tree tree)

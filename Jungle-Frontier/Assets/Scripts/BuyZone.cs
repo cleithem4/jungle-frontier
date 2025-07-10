@@ -85,26 +85,8 @@ public class BuyZone : MonoBehaviour
     private void OnTriggerEnter(Collider other)
     {
         if (!other.CompareTag("Player")) return;
+        var collector = other.GetComponent<ResourceCollector>();
         onPlayerEnter?.Invoke();
-
-        if (!_isSelling)
-        {
-            _sellRoutine = StartCoroutine(SellRoutine(other));
-            _isSelling = true;
-        }
-
-        // If this BuyZone is priced in global currency (crystals), handle spending directly
-        if (requiredResource == ResourceType.Crystal)
-        {
-            var cm = CurrencyManager.Instance;
-            if (cm == null || cm.CurrentCurrency <= 0)
-                return;
-
-            // Subtract one unit of currency and register a purchase
-            cm.TrySpend(1);
-            ReceiveResource(null);
-            return;
-        }
     }
 
     private void OnTriggerExit(Collider other)
@@ -120,6 +102,27 @@ public class BuyZone : MonoBehaviour
         {
             onPlayerExit?.Invoke();
         }
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        if (!other.CompareTag("Player")) return;
+        if (_isSelling)
+        {
+            return;
+        }
+        // Only start selling if zone has room and player holds needed resource
+        var collector = other.GetComponent<ResourceCollector>();
+        int held = (collector != null ? collector.HeldCount : 0);
+        bool hasResource = requiredResource == ResourceType.Crystal
+            ? (CurrencyManager.Instance.CurrentCurrency > 0)
+            : (collector != null && held > 0);
+        if (currentCollected >= amountNeeded || !hasResource)
+        {
+            return;
+        }
+        _sellRoutine = StartCoroutine(SellRoutine(other));
+        _isSelling = true;
     }
 
     private IEnumerator AnimateFill(float target, float duration)
@@ -177,6 +180,28 @@ public class BuyZone : MonoBehaviour
     }
 
     /// <summary>
+    /// Resets all internal state and UI of this BuyZone.
+    /// </summary>
+    private void ResetZone()
+    {
+        // Reset collected count
+        currentCollected = 0;
+        // Reset fill image
+        if (fillImage != null)
+            fillImage.fillAmount = 0f;
+        // Reset UI text
+        if (amountText != null)
+            amountText.text = $"{amountNeeded}";
+        // Reset canvas visibility
+        if (panelCanvas != null)
+            panelCanvas.alpha = 1f;
+        // Stop any pending animations
+        StopAllCoroutines();
+        // Play tick particles reset (optional)
+        // if (tickParticles != null) tickParticles.Clear();
+    }
+
+    /// <summary>
     /// Called by the player to sell wood pieces into this zone.
     /// </summary>
     public void AttemptPurchase()
@@ -224,6 +249,9 @@ public class BuyZone : MonoBehaviour
             }
             if (cameraFollow != null)
                 cameraFollow.Shake(shakeDuration, 0.1f);
+            // reset internal state/UI before removal
+            ResetZone();
+            // notify and then destroy
             onBuyComplete.Invoke(transform.position + paintOffset);
             Destroy(gameObject);
         }
@@ -232,59 +260,50 @@ public class BuyZone : MonoBehaviour
     private IEnumerator SellRoutine(Collider playerCollider)
     {
         var collector = playerCollider.GetComponent<ResourceCollector>();
-        // Determine how many more we need
         int slotsLeft = amountNeeded - currentCollected;
-        while (true)
+        int held = (requiredResource == ResourceType.Crystal)
+            ? CurrencyManager.Instance.CurrentCurrency
+            : (collector != null ? collector.HeldCount : 0);
+        int toSell = Mathf.Min(slotsLeft, held);
+        float totalDuration = 1.8f;
+        float interval = (amountNeeded > 0) ? (totalDuration / amountNeeded) : 0f;
+        int iterations = amountNeeded - currentCollected;
+        int sold = 0;
+        for (int i = 0; i < iterations; i++)
         {
-            // Exit if zone already full
-            if (currentCollected >= amountNeeded)
+            // Check for available resources each iteration
+            int heldNow = (requiredResource == ResourceType.Crystal)
+                ? CurrencyManager.Instance.CurrentCurrency
+                : (collector != null ? collector.HeldCount : 0);
+            if (heldNow <= 0)
                 break;
 
-            // Compute slots left in receiver
-            if (requiredResource != ResourceType.Crystal && collector != null)
+            if (requiredResource == ResourceType.Crystal)
             {
-                // Stop if player has no resource or no slots left
-                if (collector.HeldCount <= 0 || slotsLeft <= 0)
-                    break;
-
-                // Pull one resource (only as many as needed)
+                CurrencyManager.Instance.TrySpend(1);
+                ReceiveResource(null);
+            }
+            else
+            {
                 GameObject piece = collector.ProvideResource(requiredResource);
-                if (piece == null)
-                    yield break;
-
-                // Verify type
+                if (piece == null) break;
                 var behavior = piece.GetComponent<ResourceBehavior>();
                 if (behavior == null || behavior.resourceType != requiredResource)
                 {
                     Destroy(piece);
-                    yield break;
-                }
-
-                // Deposit into this zone
-                behavior.DepositTo(gameObject);
-                // Account for one filled slot
-                slotsLeft--;
-            }
-            else if (requiredResource == ResourceType.Crystal)
-            {
-                // Crystal-priced zone
-                var cm = CurrencyManager.Instance;
-                if (cm == null || cm.CurrentCurrency <= 0)
                     break;
-
-                cm.TrySpend(1);
-                ReceiveResource(null);
-                // Account for one filled slot
-                slotsLeft--;
+                }
+                // Set flight duration if ResourceSender is present
+                var sender = piece.GetComponent<ResourceSender>();
+                if (sender != null)
+                {
+                    sender.flightDuration = interval;
+                }
+                behavior.DepositTo(gameObject);
             }
-
-            // Wait before next sale
-            float interval = (requiredResource == ResourceType.Crystal)
-                ? (crystalSellDuration / Mathf.Max(1, amountNeeded - currentCollected))
-                : sellInterval;
             yield return new WaitForSeconds(interval);
+            sold++;
         }
-
         _isSelling = false;
         _sellRoutine = null;
     }
